@@ -1,0 +1,326 @@
+---
+Description: Angular Routing Best Practices
+Globs: 
+  - src/**/*.routes.ts
+  - src/**/app-routing.ts
+  - src/**/*-routing.ts
+  - src/app/app.routes.ts
+  - src/app/app.config.ts
+---
+
+## Angular Routing Best Practices
+
+- **Standalone Component Routing:** Use the standalone component routing APIs.
+
+```typescript
+// app.routes.ts
+import { Routes } from '@angular/router';
+
+export const routes: Routes = [
+  { path: '', component: HomeComponent },
+  { path: 'users', component: UsersComponent },
+  { path: 'users/:id', component: UserDetailComponent },
+  {
+    path: 'admin',
+    canActivate: [() => inject(AuthService).isAdmin()],
+    loadChildren: () => import('./admin/admin.routes').then(m => m.ADMIN_ROUTES)
+  },
+  { path: '**', component: NotFoundComponent }
+];
+```
+
+- **Lazy Loading:** Use lazy loading for feature routes to improve initial load performance.
+
+```typescript
+// In app.routes.ts
+{
+  path: 'products',
+  loadChildren: () => import('./products/product.routes')
+    .then(m => m.PRODUCT_ROUTES)
+},
+
+// In products/product.routes.ts
+export const PRODUCT_ROUTES: Routes = [
+  { path: '', component: ProductListComponent },
+  { path: ':id', component: ProductDetailComponent }
+];
+```
+
+- **Component Input Binding:** Use component input binding to map route parameters directly to component inputs.
+
+```typescript
+// In app.config.ts
+import { provideRouter, withComponentInputBinding } from '@angular/router';
+
+export const appConfig: ApplicationConfig = {
+  providers: [
+    provideRouter(routes, withComponentInputBinding())
+  ]
+};
+
+// In user-detail.component.ts
+@Component({
+  selector: 'app-user-detail',
+  standalone: true,
+  template: '...'
+})
+export class UserDetailComponent {
+  // This will automatically receive the value from route parameter 'id'
+  id = input<string>('');
+  
+  user = signal<User | null>(null);
+  
+  constructor(private userService: UserService) {
+    effect(() => {
+      const userId = this.id();
+      if (userId) {
+        this.loadUser(userId);
+      }
+    });
+  }
+  
+  private loadUser(id: string): void {
+    this.userService.getUser(id).subscribe(user => {
+      this.user.set(user);
+    });
+  }
+}
+```
+
+- **Route Guards:**  Use functional route guards instead of class-based guards when possible.
+
+```typescript
+// auth.guard.ts
+import { inject } from '@angular/core';
+import { Router } from '@angular/router';
+import { AuthService } from './auth.service';
+
+export const authGuard = () => {
+  const authService = inject(AuthService);
+  const router = inject(Router);
+  
+  if (authService.isLoggedIn()) {
+    return true;
+  }
+  
+  // Redirect to login page with return url
+  return router.parseUrl('/login?returnUrl=' + router.url);
+};
+
+// Usage in routes
+{
+  path: 'profile',
+  component: ProfileComponent,
+  canActivate: [authGuard]
+}
+```
+
+- **Route Resolvers:** Use route resolvers to pre-fetch data before activating a route.
+
+```typescript
+// products.resolver.ts
+import { inject } from '@angular/core';
+import { ResolveFn } from '@angular/router';
+import { ProductService } from './product.service';
+import { Product } from './product.model';
+
+export const productsResolver: ResolveFn<Product[]> = () => {
+  return inject(ProductService).getProducts();
+};
+
+// In routes
+{
+  path: 'products',
+  component: ProductListComponent,
+  resolve: { products: productsResolver }
+}
+
+// In component
+export class ProductListComponent {
+  products = input<Product[]>([]);
+  // With component input binding enabled, the resolver data is automatically 
+  // bound to the input above
+}
+```
+
+- **Route Data:** Use route data for static configuration.
+
+```typescript
+{
+  path: 'about',
+  component: AboutComponent,
+  data: { 
+    title: 'About Us',
+    breadcrumb: 'About',
+    animation: 'AboutPage'
+  }
+}
+
+// In component
+export class AboutComponent {
+  // With component input binding enabled
+  title = input<string>('');
+  breadcrumb = input<string>('');
+  animation = input<string>('');
+}
+```
+
+- **Route Events:** Listen to router events to implement features like loading indicators.
+
+```typescript
+@Component({
+  selector: 'app-root',
+  template: `
+    <app-loading-bar *ngIf="isLoading()"></app-loading-bar>
+    <router-outlet></router-outlet>
+  `
+})
+export class AppComponent implements OnInit {
+  private router = inject(Router);
+  isLoading = signal(false);
+  
+  ngOnInit() {
+    this.router.events.pipe(
+      filter(event => 
+        event instanceof NavigationStart ||
+        event instanceof NavigationEnd ||
+        event instanceof NavigationCancel ||
+        event instanceof NavigationError
+      )
+    ).subscribe(event => {
+      if (event instanceof NavigationStart) {
+        this.isLoading.set(true);
+      } else {
+        this.isLoading.set(false);
+      }
+    });
+  }
+}
+```
+
+- **Named Outlets:** Use named outlets for more complex UIs with multiple router outlets.
+
+```typescript
+// Routes configuration
+{
+  path: 'dashboard',
+  component: DashboardComponent,
+  children: [
+    {
+      path: 'notifications',
+      component: NotificationsComponent,
+      outlet: 'sidebar'
+    },
+    {
+      path: 'profile',
+      component: ProfileComponent,
+      outlet: 'sidebar'
+    }
+  ]
+}
+
+// In template
+<router-outlet></router-outlet>
+<div class="sidebar">
+  <router-outlet name="sidebar"></router-outlet>
+</div>
+
+// Navigate with named outlet
+this.router.navigate(['dashboard', { outlets: { sidebar: ['notifications'] } }]);
+```
+
+- **Route Transition Animations:** Add animations to route transitions.
+
+```typescript
+@Component({
+  selector: 'app-root',
+  template: `
+    <div [@routeAnimations]="getRouteAnimationData()">
+      <router-outlet></router-outlet>
+    </div>
+  `,
+  animations: [
+    trigger('routeAnimations', [
+      transition('HomePage => *', [
+        style({ position: 'relative' }),
+        query(':enter, :leave', [
+          style({
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%'
+          })
+        ]),
+        query(':enter', [style({ left: '100%' })]),
+        query(':leave', animateChild()),
+        group([
+          query(':leave', [animate('300ms ease-out', style({ left: '-100%' }))]),
+          query(':enter', [animate('300ms ease-out', style({ left: '0%' }))])
+        ]),
+        query(':enter', animateChild())
+      ]),
+      // More transitions...
+    ])
+  ]
+})
+export class AppComponent {
+  constructor(private router: Router) {}
+  
+  getRouteAnimationData() {
+    return this.router.url;
+  }
+}
+```
+
+- **URL Serialization:** Customize URL serialization for complex query parameters.
+
+```typescript
+// In app.config.ts
+import { provideRouter, withRouterConfig } from '@angular/router';
+
+export const appConfig: ApplicationConfig = {
+  providers: [
+    provideRouter(
+      routes,
+      withRouterConfig({ 
+        paramsInheritanceStrategy: 'always',
+        urlUpdateStrategy: 'eager' 
+      })
+    )
+  ]
+};
+```
+
+- **Router Testing:** Write tests for your routing configuration.
+
+```typescript
+describe('App Routing', () => {
+  let router: Router;
+  let location: Location;
+  let fixture: ComponentFixture<AppComponent>;
+  
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      imports: [RouterTestingModule.withRoutes(routes)],
+      declarations: [AppComponent, HomeComponent, AboutComponent]
+    });
+    
+    router = TestBed.inject(Router);
+    location = TestBed.inject(Location);
+    fixture = TestBed.createComponent(AppComponent);
+    fixture.detectChanges();
+  });
+  
+  it('should navigate to home by default', fakeAsync(() => {
+    router.initialNavigation();
+    tick();
+    expect(location.path()).toBe('/');
+  }));
+  
+  it('should navigate to about page', fakeAsync(() => {
+    router.navigate(['/about']);
+    tick();
+    expect(location.path()).toBe('/about');
+  }));
+});
+```

@@ -1,0 +1,202 @@
+---
+description: Angular Directives Best Practices
+globs: 
+alwaysApply: false
+---
+
+## Angular Directives Best Practices
+
+- **Standalone Directives:** Use standalone directives to avoid NgModule configuration.
+
+```typescript
+@Directive({
+  selector: '[appHighlight]',
+  standalone: true
+})
+export class HighlightDirective {
+  constructor(private el: ElementRef) {}
+  
+  @HostListener('mouseenter')
+  onMouseEnter() {
+    this.highlight('yellow');
+  }
+  
+  @HostListener('mouseleave')
+  onMouseLeave() {
+    this.highlight(null);
+  }
+  
+  private highlight(color: string | null) {
+    this.el.nativeElement.style.backgroundColor = color;
+  }
+}
+```
+
+- **Directive Inputs:** For directives, use signal-based inputs with the new `input()` function.
+
+```typescript
+@Directive({
+  selector: '[appHighlight]',
+  standalone: true
+})
+export class HighlightDirective {
+  highlightColor = input<string>('yellow'); // Default color
+  
+  constructor(private el: ElementRef) {}
+  
+  @HostListener('mouseenter')
+  onMouseEnter() {
+    this.el.nativeElement.style.backgroundColor = this.highlightColor();
+  }
+  
+  @HostListener('mouseleave')
+  onMouseLeave() {
+    this.el.nativeElement.style.backgroundColor = null;
+  }
+}
+```
+
+- **Prefer @HostListener and @HostBinding:** Use decorators for host event binding and property binding rather than host configuration in the directive decorator.
+
+```typescript
+// Prefer this:
+@HostBinding('attr.role') role = 'button';
+@HostListener('click') onClick() { /* ... */ }
+
+// Instead of:
+@Directive({
+  selector: '[appButton]',
+  host: {
+    '[attr.role]': 'role',
+    '(click)': 'onClick()'
+  }
+})
+```
+
+- **Signal Effects in Directives:** Use effects to reactively update the DOM when inputs change.
+
+```typescript
+@Directive({
+  selector: '[appTooltip]',
+  standalone: true
+})
+export class TooltipDirective implements OnInit {
+  tooltipText = input<string>('');
+  tooltipPosition = input<'top' | 'bottom' | 'left' | 'right'>('top');
+  
+  constructor(
+    private el: ElementRef,
+    private renderer: Renderer2,
+    private injector: Injector
+  ) {}
+  
+  ngOnInit() {
+    // Use effect to update tooltip when inputs change
+    effect(() => {
+      const text = this.tooltipText();
+      const position = this.tooltipPosition();
+      
+      // Update tooltip with new values
+      if (this.tooltipElement) {
+        this.renderer.setProperty(this.tooltipElement, 'textContent', text);
+        this.updateTooltipPosition(position);
+      }
+    }, { injector: this.injector });
+  }
+  
+  // Rest of directive implementation
+}
+```
+
+- **Custom Prefix:** Use a custom prefix for directive selectors to avoid conflicts with standard HTML attributes. Don't use the 'ng' prefix which is reserved for Angular.
+
+```typescript
+// Good
+selector: '[appHighlight]'
+
+// Avoid
+selector: '[highlight]' // Too generic
+selector: '[ngHighlight]' // Uses reserved 'ng' prefix
+```
+
+- **Selector Naming:** Use lowerCamelCase for directive selectors.
+
+```typescript
+// Good
+selector: '[appTooltip]'
+
+// Avoid
+selector: '[app-tooltip]'
+```
+
+- **Directive Composition API:** For more complex directives, consider using the newer Directive Composition API to compose multiple behaviors.
+
+```typescript
+@Directive({
+  selector: '[appEnhancedInput]',
+  standalone: true,
+  hostDirectives: [
+    {
+      directive: TooltipDirective,
+      inputs: ['tooltipText', 'tooltipPosition'],
+    },
+    {
+      directive: FocusHighlightDirective,
+      inputs: ['highlightColor'],
+    }
+  ]
+})
+export class EnhancedInputDirective {
+  // This directive composes other directives without additional code
+}
+```
+
+- **Structural Directives:** When creating structural directives, prefer the modern control flow directives (@if, @for) for most cases. Only create custom structural directives for truly unique manipulation of the DOM structure.
+
+- **Directive Documentation:** Document how to use your directive with JSDoc comments, including all inputs and outputs.
+
+```typescript
+/**
+ * Directive that highlights an element when hovered.
+ * 
+ * @example
+ * <div [appHighlight]="'yellow'">Hover me</div>
+ * 
+ * @publicApi
+ */
+@Directive({
+  selector: '[appHighlight]',
+  standalone: true
+})
+export class HighlightDirective {
+  // implementation
+}
+```
+
+- **Testing Directives:** Write thorough unit tests for directives, testing each input, output, and host binding/listener.
+
+```typescript
+describe('HighlightDirective', () => {
+  let fixture: ComponentFixture<TestComponent>;
+  let des: DebugElement[];
+  
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      imports: [HighlightDirective],
+      declarations: [TestComponent]
+    });
+    
+    fixture = TestBed.createComponent(TestComponent);
+    fixture.detectChanges();
+    des = fixture.debugElement.queryAll(By.directive(HighlightDirective));
+  });
+  
+  it('should highlight when mouse enters', () => {
+    const el = des[0].nativeElement;
+    des[0].triggerEventHandler('mouseenter', null);
+    expect(el.style.backgroundColor).toBe('yellow');
+  });
+  
+  // More tests
+});
+```

@@ -1,0 +1,28 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+
+## Angular General Guidelines
+
+- **Embrace Angular 19+ Features:** Use standalone components, signals for state management, and modern template control flow syntax.
+
+- **File Structure:** Follow `feature.type.ts` naming pattern (e.g., `hero-list.component.ts`, `auth.service.ts`).
+
+- **Single Responsibility:** Each file should have one component, service, pipe, or directive. Never combine multiple classes in a single file.
+
+- **Keep Files Small:** Aim for less than 350 lines per file. If a component grows beyond this, consider splitting it into smaller components.
+
+- **Extract Templates/Styles:** For components with more than 3 lines of template or styles, use separate HTML and CSS files.
+
+- **Change Detection:** Use OnPush change detection by default for all components. ALWAYS Prefer signals and computed values for leveraging reactive change detection!
+
+
+- **Standalone Components:** ALWAYS Use standalone components, directives, and pipes.
+- **Dependency Injection:** Always inject services and dependencies using the `inject()` function.
+- **Naming Conventions:**
+  - Component selectors: Use kebab-case with a custom prefix (e.g., `app-hero-list`)
+  - Directive selectors: Use camelCase (e.g., `[appHighlight]`)
+  - Class names: Use PascalCase (e.g., `HeroListComponent`)
+  - Properties/methods: Use camelCase (e.g., `selectedHero`, `getHeroes()`)

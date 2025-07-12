@@ -1,0 +1,39 @@
+---
+description: 
+globs: **/*.component.html
+alwaysApply: false
+---
+- **Template Control Flow:** Use modern @if, @for, and @switch syntax instead of *ngIf, *ngFor, and *ngSwitch.
+
+```html
+<!-- Instead of: -->
+<!-- <div *ngIf="user">{{ user.name }}</div> -->
+
+<!-- Use: -->
+@if (user()) {
+  <div>{{ user().name }}</div>
+} @else {
+  <div>No user found</div>
+}
+
+<!-- Instead of: -->
+<!-- <div *ngFor="let item of items; trackBy: trackById">{{ item.name }}</div> -->
+
+<!-- Use: -->
+@for (let item of items(); track item.id) {
+  <div>{{ item.name }}</div>
+}
+
+<!-- Instead of: -->
+<!-- <div [ngSwitch]="status">
+  <p *ngSwitchCase="'loading'">Loading...</p>
+  <p *ngSwitchDefault>Ready</p>
+</div> -->
+
+<!-- Use: -->
+@switch (status()) {
+  @case ('loading') { <p>Loading...</p> }
+  @default { <p>Ready</p> }
+}
+```
+

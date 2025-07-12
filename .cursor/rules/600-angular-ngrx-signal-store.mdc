@@ -1,0 +1,608 @@
+---
+Description: Angular NGRx Signal Store Best Practices
+Globs: 
+  - src/**/*.store.ts
+  - src/**/*-store.ts
+  - src/**/*Store.ts
+  - src/**/*state*.ts
+---
+
+## NGRx Signal Store Best Practices
+
+- **Creating Signal Stores:** Use the createStore function from @ngrx/signals to create a signal store as part of the global state layer.
+
+```typescript
+import { createStore, withState, withComputed, withMethods, patchState } from '@ngrx/signals';
+import { rxMethod } from '@ngrx/signals/rxjs-interop';
+import { pipe, switchMap, map, catchError } from 'rxjs';
+import { inject } from '@angular/core';
+import { tapResponse } from '@ngrx/operators';
+
+export interface TodosState {
+  todos: Todo[];
+  status: 'idle' | 'loading' | 'error';
+  error: string | null;
+}
+
+export const initialState: TodosState = {
+  todos: [],
+  status: 'idle',
+  error: null
+};
+
+export const TodosStore = createStore(
+  { providedIn: 'root' },
+  withState(initialState),
+  withComputed(({ todos }) => ({
+    completedTodos: computed(() => todos().filter(todo => todo.completed)),
+    incompleteTodos: computed(() => todos().filter(todo => !todo.completed)),
+    todoCount: computed(() => todos().length)
+  })),
+  withMethods((store, todosService = inject(TodosService)) => ({
+    loadTodos: rxMethod(
+      pipe(
+        switchMap(() => {
+          patchState(store, { status: 'loading', error: null });
+          
+          return todosService.getTodos().pipe(
+            tapResponse(
+              (todos) => patchState(store, { todos, status: 'idle' }),
+              (error) => patchState(store, { 
+                status: 'error', 
+                error: error instanceof Error ? error.message : 'Unknown error' 
+              })
+            )
+          );
+        })
+      )
+    ),
+    
+    addTodo: (title: string) => {
+      const newTodo: Todo = { 
+        id: Date.now().toString(), 
+        title, 
+        completed: false 
+      };
+      
+      patchState(store, ({ todos }) => ({
+        todos: [...todos, newTodo]
+      }));
+    },
+    
+    removeTodo: (id: string) => {
+      patchState(store, ({ todos }) => ({
+        todos: todos.filter(todo => todo.id !== id)
+      }));
+    },
+    
+    toggleTodo: (id: string) => {
+      patchState(store, ({ todos }) => ({
+        todos: todos.map(todo =>
+          todo.id === id ? { ...todo, completed: !todo.completed } : todo
+        )
+      }));
+    }
+  }))
+);
+```
+
+- **Store Methods Are Not Services:** Methods in the store should focus on state updates only, not business logic.
+
+```typescript
+// ❌ AVOID: Business logic in store methods
+export const BadUserStore = createStore(
+  { providedIn: 'root' },
+  withState<UserState>(initialUserState),
+  withMethods((store) => ({
+    updateUser: (userData: UserUpdateDto) => {
+      // Business validation doesn't belong in the store
+      if (!userData.name || userData.name.length < 3) {
+        throw new Error('Name must be at least 3 characters');
+      }
+      
+      // Business transformations should be in services
+      const formattedUser = {
+        ...userData,
+        name: userData.name.trim(),
+        updatedAt: new Date().toISOString()
+      };
+      
+      // The state update itself is appropriate
+      patchState(store, { user: formattedUser });
+    }
+  }))
+);
+
+// ✅ GOOD: Store methods focused on state updates
+export const GoodUserStore = createStore(
+  { providedIn: 'root' },
+  withState<UserState>(initialUserState),
+  withMethods((store) => ({
+    // Store methods should be simple state operations
+    updateUser: (user: User) => {
+      patchState(store, { user });
+    },
+    
+    setLoading: (loading: boolean) => {
+      patchState(store, { loading });
+    },
+    
+    setError: (error: string | null) => {
+      patchState(store, { error });
+    }
+  }))
+);
+
+// Services handle business logic before updating store
+@Injectable({ providedIn: 'root' })
+export class UserService {
+  constructor(private userStore: typeof GoodUserStore) {}
+  
+  updateUser(userData: UserUpdateDto): Observable<User> {
+    // Business validation
+    if (!userData.name || userData.name.length < 3) {
+      return throwError(() => new Error('Name must be at least 3 characters'));
+    }
+    
+    // Business transformation
+    const updatedUser = {
+      ...userData,
+      name: userData.name.trim(),
+      updatedAt: new Date().toISOString()
+    };
+    
+    // Update loading state
+    this.userStore.setLoading(true);
+    
+    // API call
+    return this.http.put<User>(`/api/users/${userData.id}`, updatedUser).pipe(
+      tap(user => {
+        // State update happens after business logic
+        this.userStore.updateUser(user);
+        this.userStore.setLoading(false);
+      }),
+      catchError(error => {
+        this.userStore.setError(error.message);
+        this.userStore.setLoading(false);
+        return throwError(() => error);
+      })
+    );
+  }
+}
+```
+
+- **Use Feature Stores:** Create feature stores for each domain area of your application.
+
+```typescript
+// Feature pattern:
+// 1. State interface and initial state
+// 2. Feature store with state, computed values, and methods
+// 3. Export a provider for the store
+
+// users/users.store.ts
+export interface UsersState {
+  users: User[];
+  selectedUserId: string | null;
+  status: 'idle' | 'loading' | 'error';
+  error: string | null;
+}
+
+export const initialState: UsersState = {
+  users: [],
+  selectedUserId: null,
+  status: 'idle',
+  error: null
+};
+
+export const UsersStore = createStore(
+  { providedIn: 'root' },
+  withState(initialState),
+  withComputed(({ users, selectedUserId }) => ({
+    selectedUser: computed(() => {
+      const userId = selectedUserId();
+      return userId ? users().find(user => user.id === userId) || null : null;
+    }),
+    userCount: computed(() => users().length)
+  })),
+  withMethods((store) => ({
+    setUsers: (users: User[]) => {
+      patchState(store, { users });
+    },
+    
+    setSelectedUserId: (selectedUserId: string | null) => {
+      patchState(store, { selectedUserId });
+    },
+    
+    setStatus: (status: 'idle' | 'loading' | 'error') => {
+      patchState(store, { status });
+    },
+    
+    setError: (error: string | null) => {
+      patchState(store, { error });
+    }
+  }))
+);
+```
+
+- **Organizing Store Structure:** Follow a consistent structure for signal stores.
+
+```typescript
+// Standard structure for a signal store:
+
+// 1. State interface and initial state
+export interface CartState {
+  items: CartItem[];
+  loading: boolean;
+  error: string | null;
+}
+
+const initialState: CartState = {
+  items: [],
+  loading: false,
+  error: null
+};
+
+// 2. Store creation with computed values and methods
+export const CartStore = createStore(
+  { providedIn: 'root' },
+  
+  // State
+  withState(initialState),
+  
+  // Computed values
+  withComputed(({ items }) => ({
+    totalPrice: computed(() => items().reduce(
+      (sum, item) => sum + (item.price * item.quantity), 0
+    )),
+    itemCount: computed(() => items().reduce(
+      (count, item) => count + item.quantity, 0
+    ))
+  })),
+  
+  // Methods for updating state
+  withMethods((store) => ({
+    // State manipulation methods
+    setItems: (items: CartItem[]) => {
+      patchState(store, { items });
+    },
+    
+    addItem: (item: CartItem) => {
+      patchState(store, ({ items }) => ({
+        items: [...items, item]
+      }));
+    },
+    
+    updateQuantity: (productId: string, quantity: number) => {
+      patchState(store, ({ items }) => ({
+        items: items.map(item => 
+          item.productId === productId
+            ? { ...item, quantity } 
+            : item
+        )
+      }));
+    },
+    
+    removeItem: (productId: string) => {
+      patchState(store, ({ items }) => ({
+        items: items.filter(item => item.productId !== productId)
+      }));
+    },
+    
+    clearCart: () => {
+      patchState(store, { items: [] });
+    },
+    
+    setLoading: (loading: boolean) => {
+      patchState(store, { loading });
+    },
+    
+    setError: (error: string | null) => {
+      patchState(store, { error });
+    }
+  }))
+);
+```
+
+- **Connecting to Components:** Components should read directly from the store, but write through services.
+
+```typescript
+@Component({
+  selector: 'app-todos',
+  standalone: true,
+  imports: [CommonModule],
+  template: `
+    @if (store.status() === 'loading') {
+      <p>Loading...</p>
+    } @else if (store.status() === 'error') {
+      <p>Error: {{ store.error() }}</p>
+    } @else {
+      <div>
+        <p>Total Todos: {{ store.todoCount() }}</p>
+        <input #titleInput type="text" placeholder="Add todo...">
+        <button (click)="addTodo(titleInput.value); titleInput.value = ''">Add</button>
+        
+        <ul>
+          @for (todo of store.todos(); track todo.id) {
+            <li>
+              <input 
+                type="checkbox" 
+                [checked]="todo.completed" 
+                (change)="toggleTodo(todo.id)"
+              >
+              <span [class.completed]="todo.completed">{{ todo.title }}</span>
+              <button (click)="removeTodo(todo.id)">Remove</button>
+            </li>
+          }
+        </ul>
+      </div>
+    }
+  `,
+  styles: [`
+    .completed { text-decoration: line-through; }
+  `]
+})
+export class TodosComponent implements OnInit {
+  // Reading from store
+  store = inject(TodosStore);
+  
+  // Services for actions
+  constructor(private todoService: TodoService) {}
+  
+  ngOnInit() {
+    this.todoService.loadTodos();
+  }
+  
+  addTodo(title: string) {
+    if (title.trim()) {
+      this.todoService.addTodo(title);
+    }
+  }
+  
+  toggleTodo(id: string) {
+    this.todoService.toggleTodo(id);
+  }
+  
+  removeTodo(id: string) {
+    this.todoService.removeTodo(id);
+  }
+}
+```
+
+- **Using Signal Selectors:** Create reusable selectors to derive state.
+
+```typescript
+// In the store file
+export const selectCompletedTodos = (store: typeof TodosStore) => 
+  computed(() => store.todos().filter(todo => todo.completed));
+
+export const selectIncompleteTodos = (store: typeof TodosStore) => 
+  computed(() => store.todos().filter(todo => !todo.completed));
+
+export const selectTodoById = (store: typeof TodosStore, id: string) =>
+  computed(() => store.todos().find(todo => todo.id === id) || null);
+
+// In a component
+export class TodoStatsComponent {
+  store = inject(TodosStore);
+  completedTodos = selectCompletedTodos(this.store);
+  incompleteTodos = selectIncompleteTodos(this.store);
+  
+  completedPercentage = computed(() => {
+    const total = this.store.todoCount();
+    if (total === 0) return 0;
+    return Math.round((this.completedTodos().length / total) * 100);
+  });
+}
+```
+
+- **Store Testing:** Write thorough unit tests for your signal stores.
+
+```typescript
+describe('TodosStore', () => {
+  let store: typeof TodosStore;
+  
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: []
+    });
+    
+    store = TestBed.inject(TodosStore);
+  });
+  
+  it('should add a todo', () => {
+    // Initial state
+    expect(store.todos().length).toBe(0);
+    
+    // Act
+    store.addTodo('Test Todo');
+    
+    // Assert
+    expect(store.todos().length).toBe(1);
+    expect(store.todos()[0].title).toBe('Test Todo');
+    expect(store.todos()[0].completed).toBe(false);
+  });
+  
+  it('should toggle a todo', () => {
+    // Arrange
+    store.addTodo('Test Todo');
+    const id = store.todos()[0].id;
+    
+    // Act
+    store.toggleTodo(id);
+    
+    // Assert
+    expect(store.todos()[0].completed).toBe(true);
+    
+    // Toggle back
+    store.toggleTodo(id);
+    expect(store.todos()[0].completed).toBe(false);
+  });
+  
+  it('should calculate todoCount correctly', () => {
+    // Arrange - initial state
+    expect(store.todoCount()).toBe(0);
+    
+    // Act - add some todos
+    store.addTodo('Todo 1');
+    store.addTodo('Todo 2');
+    
+    // Assert - count should update
+    expect(store.todoCount()).toBe(2);
+    
+    // Act - remove a todo
+    const id = store.todos()[0].id;
+    store.removeTodo(id);
+    
+    // Assert - count should update again
+    expect(store.todoCount()).toBe(1);
+  });
+});
+```
+
+- **Service Integration with Store:** Have services use the store for state management.
+
+```typescript
+@Injectable({
+  providedIn: 'root'
+})
+export class TodoService {
+  constructor(
+    private http: HttpClient,
+    private todoStore: typeof TodosStore
+  ) {}
+  
+  // Load todos from API and update store
+  loadTodos(): Observable<Todo[]> {
+    // Update loading state in store
+    this.todoStore.loadTodos();
+    
+    // The store's rxMethod handles the API call
+    return this.http.get<Todo[]>('/api/todos');
+  }
+  
+  // Add a new todo
+  addTodo(title: string): void {
+    // Validate and prepare data
+    if (!title.trim()) {
+      return;
+    }
+    
+    const todoTitle = title.trim();
+    
+    // Create the todo in the database
+    this.http.post<Todo>('/api/todos', { title: todoTitle, completed: false })
+      .subscribe({
+        next: (newTodo) => {
+          // Update store with the todo returned from API
+          this.todoStore.addTodo(newTodo.title);
+        },
+        error: (error) => {
+          // Update error state in store
+          this.todoStore.setError(`Failed to add todo: ${error.message}`);
+        }
+      });
+  }
+  
+  // Toggle todo completion
+  toggleTodo(id: string): void {
+    // Find current state
+    const todos = this.todoStore.todos();
+    const todo = todos.find(t => t.id === id);
+    if (!todo) return;
+    
+    // Optimistically update store
+    this.todoStore.toggleTodo(id);
+    
+    // Sync with server
+    this.http.patch<Todo>(`/api/todos/${id}`, { 
+      completed: !todo.completed 
+    }).pipe(
+      catchError(error => {
+        // On error, revert the optimistic update
+        this.todoStore.toggleTodo(id); // Toggle back
+        this.todoStore.setError(`Failed to update todo: ${error.message}`);
+        return throwError(() => error);
+      })
+    ).subscribe();
+  }
+  
+  // Remove a todo
+  removeTodo(id: string): void {
+    // Optimistically update store
+    this.todoStore.removeTodo(id);
+    
+    // Sync with server
+    this.http.delete(`/api/todos/${id}`).pipe(
+      catchError(error => {
+        // Would need to restore the todo on error
+        // This is simplified - in real app we'd need to cache the removed todo
+        this.todoStore.setError(`Failed to delete todo: ${error.message}`);
+        this.loadTodos(); // Reload to restore state
+        return throwError(() => error);
+      })
+    ).subscribe();
+  }
+}
+```
+
+- **Avoid State Duplication:** Don't duplicate state between different stores. Instead, use store composition or service injection to share data.
+
+- **Immutable State Updates:** Always update state immutably using patchState.
+
+```typescript
+// Good: Immutable update
+patchState(store, ({ todos }) => ({
+  todos: todos.map(todo => 
+    todo.id === id ? { ...todo, completed: !todo.completed } : todo
+  )
+}));
+
+// Bad: Don't mutate state directly
+// Don't do this:
+// const todos = store.todos();
+// todos[index].completed = !todos[index].completed;
+// patchState(store, { todos }); // This still references the same array
+```
+
+- **Separate Concerns:** Store state in the Store, business logic in Services, and UI concerns in Components.
+
+- **Rxjs Integration:** Use rxMethods for asynchronous operations.
+
+```typescript
+export const ProductStore = createStore(
+  { providedIn: 'root' },
+  withState<ProductState>(initialState),
+  withMethods((store, productService = inject(ProductService)) => ({
+    // Sync methods
+    setProducts: (products: Product[]) => {
+      patchState(store, { products });
+    },
+    
+    // Async methods with rxMethod
+    loadProducts: rxMethod<void>(pipe(
+      // Start loading
+      tap(() => patchState(store, { loading: true, error: null })),
+      
+      // Switch to the HTTP call
+      switchMap(() => productService.fetchProducts().pipe(
+        // On success, update the store
+        tap(products => {
+          patchState(store, { 
+            products,
+            loading: false
+          });
+        }),
+        
+        // On error, update error state
+        catchError(error => {
+          patchState(store, {
+            loading: false, 
+            error: error.message || 'Failed to load products'
+          });
+          return EMPTY; // Don't propagate the error further
+        })
+      ))
+    ))
+  }))
+);
+```

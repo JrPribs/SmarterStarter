@@ -1,0 +1,99 @@
+---
+description: 
+globs: **/*.component.ts
+alwaysApply: false
+---
+
+## REQUIRED Angular Component Best Practices
+
+- **Use Standalone Components:** Mark components as standalone and import their dependencies directly.
+
+```typescript
+@Component({
+  selector: 'app-hero-detail',
+  imports: [CommonModule, RouterOutlet, HeroAvatarComponent],
+  templateUrl: './hero-detail.component.html',
+  styleUrl: './hero-detail.component.css',
+  changeDetection: ChangeDetectionStrategy.OnPush
+})
+export class HeroDetailComponent {
+  // Component implementation
+}
+```
+
+- **Signal-Based Inputs:** Use the `input()` function instead of `@Input()` decorators for component inputs.
+
+```typescript
+// Instead of:
+// @Input() hero: Hero | undefined;
+
+// Use:
+hero = input<Hero | undefined>(undefined);
+```
+
+- **Two-Way Binding:** Use `model()` for two-way binding inputs instead of manual input/output pairs.
+
+```typescript
+// Instead of:
+// @Input() counter = 0;
+// @Output() counterChange = new EventEmitter<number>();
+
+// Use:
+counter = model<number>(0);
+
+// To update and emit:
+incrementCounter() {
+  this.counter.update(value => value + 1);
+}
+```
+
+- **Event Outputs:** Use `output()` for component events.
+
+```typescript
+// Instead of:
+// @Output() deleted = new EventEmitter<Hero>();
+
+// Use:
+deleted = output<Hero>();
+
+// To emit:
+onDelete(hero: Hero) {
+  this.deleted.emit(hero);
+}
+```
+
+- **Computed Values:** Use `computed()` for derived state instead of getters or methods.
+
+```typescript
+// Instead of:
+// get fullName() { return `${this.firstName} ${this.lastName}`; }
+
+// Use:
+firstName = signal('');
+lastName = signal('');
+fullName = computed(() => `${this.firstName()} ${this.lastName()}`);
+```
+
+
+
+- **Avoid Aliasing Inputs:** Avoid aliasing inputs and outputs unless necessary.
+
+```typescript
+// Avoid:
+userId = input<string>('', {alias: 'id'});
+
+// Prefer:
+userId = input<string>('');
+```
+
+- **Initialize Inputs:** Always provide default values for inputs or mark them as optional with `?`.
+
+```typescript
+// With default value:
+hero = input<Hero | null>(null);
+
+// Or mark as optional:
+type = input<'primary' | 'secondary'>('primary');
+```
+
+- **Local Derivations:** Keep component-specific derivations in the component; global derivations in the store.

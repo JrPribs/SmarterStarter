@@ -1,0 +1,588 @@
+---
+description: Angular Store Architecture and State Management
+globs: 
+alwaysApply: false
+---
+
+## Angular Store Architecture and State Management
+
+- **Store Structure:** Create stores as injectable services with signals for state.
+
+```typescript
+@Injectable({
+  providedIn: 'root'
+})
+export class ProductStore {
+  // Private writable signals
+  private _products = signal<Product[]>([]);
+  private _selectedProductId = signal<string | null>(null);
+  private _loading = signal<boolean>(false);
+  private _error = signal<string | null>(null);
+  
+  // Public read-only signals 
+  public products = this._products.asReadonly();
+  public selectedProductId = this._selectedProductId.asReadonly();
+  public loading = this._loading.asReadonly();
+  public error = this._error.asReadonly();
+  
+  // Computed signals for derived state
+  public selectedProduct = computed(() => {
+    const id = this._selectedProductId();
+    return id ? this._products().find(p => p.id === id) || null : null;
+  });
+  
+  public productsByCategory = computed(() => {
+    const products = this._products();
+    return products.reduce((acc, product) => {
+      const category = product.category;
+      if (!acc[category]) {
+        acc[category] = [];
+      }
+      acc[category].push(product);
+      return acc;
+    }, {} as Record<string, Product[]>);
+  });
+  
+  // Public methods for state updates
+  setProducts(products: Product[]) {
+    this._products.set(products);
+  }
+  
+  setSelectedProductId(id: string | null) {
+    this._selectedProductId.set(id);
+  }
+  
+  setLoading(isLoading: boolean) {
+    this._loading.set(isLoading);
+  }
+  
+  setError(error: string | null) {
+    this._error.set(error);
+  }
+  
+  addProduct(product: Product) {
+    this._products.update(products => [...products, product]);
+  }
+  
+  updateProduct(updatedProduct: Product) {
+    this._products.update(products => 
+      products.map(p => p.id === updatedProduct.id ? updatedProduct : p)
+    );
+  }
+  
+  removeProduct(productId: string) {
+    this._products.update(products => 
+      products.filter(p => p.id !== productId)
+    );
+  }
+}
+```
+
+- **State Normalization:** Store data in a normalized form to avoid duplication and improve management.
+
+```typescript
+@Injectable({
+  providedIn: 'root'
+})
+export class UserStore {
+  // Bad approach: nested data structure
+  // private _userData = signal<{
+  //   user: User,
+  //   orders: Order[],
+  //   addresses: Address[]
+  // } | null>(null);
+  
+  // Good approach: normalized data
+  private _user = signal<User | null>(null);
+  private _orders = signal<Record<string, Order>>({});
+  private _addresses = signal<Record<string, Address>>({});
+  
+  // Public read-only signals
+  public user = this._user.asReadonly();
+  public orders = this._orders.asReadonly();
+  public addresses = this._addresses.asReadonly();
+  
+  // Computed signals for derived state
+  public userOrders = computed(() => {
+    const user = this._user();
+    const orders = this._orders();
+    if (!user) return [];
+    
+    return user.orderIds
+      .map(id => orders[id])
+      .filter(Boolean);
+  });
+  
+  public userAddresses = computed(() => {
+    const user = this._user();
+    const addresses = this._addresses();
+    if (!user) return [];
+    
+    return user.addressIds
+      .map(id => addresses[id])
+      .filter(Boolean);
+  });
+  
+  // Set methods
+  setUser(user: User | null) {
+    this._user.set(user);
+  }
+  
+  // Entities management methods
+  addOrder(order: Order) {
+    this._orders.update(orders => ({
+      ...orders,
+      [order.id]: order
+    }));
+    
+    // Update user's orderIds if necessary
+    if (this._user()) {
+      this._user.update(user => {
+        if (!user) return user;
+        
+        if (!user.orderIds.includes(order.id)) {
+          return {
+            ...user,
+            orderIds: [...user.orderIds, order.id]
+          };
+        }
+        
+        return user;
+      });
+    }
+  }
+  
+  addAddress(address: Address) {
+    this._addresses.update(addresses => ({
+      ...addresses,
+      [address.id]: address
+    }));
+    
+    if (this._user()) {
+      this._user.update(user => {
+        if (!user) return user;
+        
+        if (!user.addressIds.includes(address.id)) {
+          return {
+            ...user,
+            addressIds: [...user.addressIds, address.id]
+          };
+        }
+        
+        return user;
+      });
+    }
+  }
+}
+```
+
+- **Avoid Storing Derived Data:** Use computed signals for derived state rather than storing it.
+
+```typescript
+// ❌ AVOID: Storing derived data
+@Injectable({
+  providedIn: 'root'
+})
+export class BadCartStore {
+  private _items = signal<CartItem[]>([]);
+  private _totalPrice = signal<number>(0); // Derived data that will get out of sync
+  
+  // When adding items, we need to remember to update the total
+  addItem(item: CartItem) {
+    this._items.update(items => [...items, item]);
+    this._totalPrice.update(total => total + (item.price * item.quantity));
+  }
+  
+  // Easy to forget to update related state
+  updateQuantity(itemId: string, quantity: number) {
+    this._items.update(items => items.map(item => {
+      if (item.id === itemId) {
+        return { ...item, quantity };
+      }
+      return item;
+    }));
+    // Oops, forgot to update totalPrice!
+  }
+}
+
+// ✅ GOOD: Using computed for derived state
+@Injectable({
+  providedIn: 'root'
+})
+export class GoodCartStore {
+  private _items = signal<CartItem[]>([]);
+  
+  // Public API
+  items = this._items.asReadonly();
+  
+  // Derived state as computed signals
+  totalPrice = computed(() => {
+    return this._items().reduce(
+      (sum, item) => sum + (item.price * item.quantity), 
+      0
+    );
+  });
+  
+  itemCount = computed(() => {
+    return this._items().reduce(
+      (count, item) => count + item.quantity, 
+      0
+    );
+  });
+  
+  // Actions
+  addItem(item: CartItem) {
+    this._items.update(items => [...items, item]);
+    // totalPrice updates automatically!
+  }
+  
+  updateQuantity(itemId: string, quantity: number) {
+    this._items.update(items => items.map(item => {
+      if (item.id === itemId) {
+        return { ...item, quantity };
+      }
+      return item;
+    }));
+    // totalPrice updates automatically!
+  }
+}
+```
+
+- **Immutable Updates:** Always update state immutably.
+
+```typescript
+// ❌ AVOID: Mutating state directly
+@Injectable({
+  providedIn: 'root'
+})
+export class BadStateStore {
+  private _data = signal<any[]>([]);
+  
+  badUpdate(index: number, value: any) {
+    const data = this._data(); // Gets the current value
+    data[index] = value; // Mutates the array
+    this._data.set(data); // Sets the same reference, will not trigger updates!
+  }
+}
+
+// ✅ GOOD: Updating immutably
+@Injectable({
+  providedIn: 'root'
+})
+export class GoodStateStore {
+  private _data = signal<any[]>([]);
+  
+  goodUpdate(index: number, value: any) {
+    this._data.update(data => {
+      const newData = [...data]; // Create a new array
+      newData[index] = value; // Update the new array
+      return newData; // Return the new reference
+    });
+  }
+  
+  // Alternative approach using map
+  goodUpdateAlternative(index: number, value: any) {
+    this._data.update(data => 
+      data.map((item, i) => i === index ? value : item)
+    );
+  }
+}
+```
+
+- **State Organization:** Separate stores by domain or feature.
+
+```typescript
+// Users domain
+@Injectable({ providedIn: 'root' })
+export class UserStore {
+  // User-related state
+}
+
+// Products domain
+@Injectable({ providedIn: 'root' })
+export class ProductStore {
+  // Product-related state
+}
+
+// Orders domain
+@Injectable({ providedIn: 'root' })
+export class OrderStore {
+  // Order-related state
+}
+
+// UI state for specific features
+@Injectable({ providedIn: 'root' })
+export class UIStore {
+  // UI-related state: sidebar, theme, etc.
+}
+```
+
+- **Store API Design:** Provide a clear public API for store interaction.
+
+```typescript
+@Injectable({
+  providedIn: 'root'
+})
+export class AuthStore {
+  // Private state
+  private _user = signal<User | null>(null);
+  private _token = signal<string | null>(null);
+  private _authenticating = signal<boolean>(false);
+  private _error = signal<string | null>(null);
+  
+  // Public read-only signals
+  readonly user = this._user.asReadonly();
+  readonly token = this._token.asReadonly();
+  readonly authenticating = this._authenticating.asReadonly();
+  readonly error = this._error.asReadonly();
+  
+  // Computed state
+  readonly isAuthenticated = computed(() => !!this._user() && !!this._token());
+  readonly isAdmin = computed(() => {
+    const user = this._user();
+    return !!user && user.roles.includes('admin');
+  });
+  
+  // Clear public API methods for state changes
+  setUser(user: User | null) {
+    this._user.set(user);
+  }
+  
+  setToken(token: string | null) {
+    this._token.set(token);
+  }
+  
+  setAuthenticating(isAuthenticating: boolean) {
+    this._authenticating.set(isAuthenticating);
+  }
+  
+  setError(error: string | null) {
+    this._error.set(error);
+  }
+  
+  clearAuth() {
+    this._user.set(null);
+    this._token.set(null);
+    this._error.set(null);
+  }
+}
+```
+
+- **Store Events for Side-Effects:** Consider adding event signals for side-effects that need to be triggered by state changes.
+
+```typescript
+@Injectable({
+  providedIn: 'root'
+})
+export class NotificationStore {
+  // State signals
+  private _notifications = signal<Notification[]>([]);
+  
+  // Read-only public API
+  readonly notifications = this._notifications.asReadonly();
+  readonly unreadCount = computed(() => 
+    this._notifications().filter(n => !n.read).length
+  );
+  
+  // Event signal (for side effects like playing sounds)
+  private _notificationReceived = signal<Notification | null>(null);
+  readonly notificationReceived = this._notificationReceived.asReadonly();
+  
+  // Action methods
+  addNotification(notification: Notification) {
+    this._notifications.update(notifications => 
+      [notification, ...notifications]
+    );
+    
+    // Emit the event by updating the signal
+    this._notificationReceived.set(notification);
+    
+    // Reset after a moment to allow subscribers to react
+    setTimeout(() => {
+      this._notificationReceived.set(null);
+    }, 100);
+  }
+  
+  markAsRead(id: string) {
+    this._notifications.update(notifications =>
+      notifications.map(n => n.id === id ? { ...n, read: true } : n)
+    );
+  }
+  
+  clearAll() {
+    this._notifications.set([]);
+  }
+}
+
+// Usage in a service:
+@Injectable({
+  providedIn: 'root'
+})
+export class SoundService {
+  constructor(private notificationStore: NotificationStore) {
+    // React to notification events
+    effect(() => {
+      const notification = this.notificationStore.notificationReceived();
+      if (notification) {
+        this.playSound(notification.type);
+      }
+    });
+  }
+  
+  private playSound(type: string) {
+    // Play appropriate sound based on notification type
+  }
+}
+```
+
+- **Lazy Loading Store State:** Use route guards or services to load data only when needed.
+
+```typescript
+@Injectable({
+  providedIn: 'root'
+})
+export class ProductStore {
+  // State
+  private _products = signal<Product[]>([]);
+  private _loaded = signal<boolean>(false);
+  
+  // Public API
+  readonly products = this._products.asReadonly();
+  readonly loaded = this._loaded.asReadonly();
+  
+  // Check and load method for lazy loading
+  ensureLoaded(): Observable<boolean> {
+    if (this._loaded()) {
+      return of(true);
+    }
+    
+    // Mark as loaded only after data comes in
+    return this.loadProducts().pipe(
+      map(() => true),
+      catchError(() => of(false))
+    );
+  }
+  
+  loadProducts(): Observable<Product[]> {
+    // Implementation with HTTP call
+    return this.http.get<Product[]>('/api/products').pipe(
+      tap(products => {
+        this._products.set(products);
+        this._loaded.set(true);
+      })
+    );
+  }
+}
+
+// Usage in a route guard:
+export const productsGuard: CanActivateFn = () => {
+  const productStore = inject(ProductStore);
+  
+  // The guard ensures products are loaded before route activates
+  return productStore.ensureLoaded();
+};
+
+// In routes:
+{
+  path: 'products',
+  component: ProductListComponent,
+  canActivate: [productsGuard]
+}
+```
+
+- **Store Feature Initialization:** Use constructors to set up critical initial state or subscriptions.
+
+```typescript
+@Injectable({
+  providedIn: 'root'
+})
+export class ThemeStore {
+  // State
+  private _theme = signal<'light' | 'dark'>('light');
+  private readonly LOCAL_STORAGE_KEY = 'app_theme';
+  
+  // Public API
+  readonly theme = this._theme.asReadonly();
+  
+  constructor() {
+    // Initialize from saved preferences
+    const savedTheme = localStorage.getItem(this.LOCAL_STORAGE_KEY);
+    if (savedTheme === 'light' || savedTheme === 'dark') {
+      this._theme.set(savedTheme);
+    } else {
+      // Or from system preference
+      const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+      this._theme.set(prefersDark ? 'dark' : 'light');
+    }
+    
+    // Set up effect to save changes to localStorage
+    effect(() => {
+      const currentTheme = this._theme();
+      localStorage.setItem(this.LOCAL_STORAGE_KEY, currentTheme);
+      
+      // Also update DOM
+      document.documentElement.setAttribute('data-theme', currentTheme);
+    });
+  }
+  
+  // Actions
+  toggleTheme() {
+    this._theme.update(current => current === 'light' ? 'dark' : 'light');
+  }
+  
+  setTheme(theme: 'light' | 'dark') {
+    this._theme.set(theme);
+  }
+}
+```
+
+- **Avoid Direct Store Manipulation:** Components should never modify stores directly; use services as mediators.
+
+```typescript
+// ❌ AVOID: Component directly manipulating store
+@Component({...})
+export class BadComponent {
+  constructor(private store: UserStore) {}
+  
+  updateUser(userData: Partial<User>) {
+    // Direct store manipulation is an anti-pattern
+    this.store.updateUser(userData);
+  }
+}
+
+// ✅ GOOD: Component using service as mediator
+@Component({...})
+export class GoodComponent {
+  constructor(private userService: UserService) {}
+  
+  updateUser(userData: Partial<User>) {
+    // Service handles business logic and store updates
+    this.userService.updateUser(userData);
+  }
+}
+```
+
+- **Store Debugging:** Include debugging methods in development environments.
+
+```typescript
+@Injectable({
+  providedIn: 'root'
+})
+export class CartStore {
+  // Regular store implementation...
+  
+  // Debugging help in dev mode
+  constructor() {
+    if (isDevMode()) {
+      (window as any).__DEBUG_CART_STORE__ = {
+        getState: () => ({
+          items: this._items(),
+          totalPrice: this.totalPrice(),
+          itemCount: this.itemCount()
+        }),
+        reset: () => this._items.set([])
+      };
+    }
+  }
+}
+```

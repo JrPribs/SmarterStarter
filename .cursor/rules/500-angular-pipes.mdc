@@ -1,0 +1,246 @@
+---
+description: Angular Pipes
+globs: 
+alwaysApply: false
+---
+
+## Angular Pipes Best Practices
+
+- **Standalone Pipes:** Create pipes as standalone to avoid NgModule configuration.
+
+```typescript
+@Pipe({
+  name: 'truncate',
+  standalone: true
+})
+export class TruncatePipe implements PipeTransform {
+  transform(value: string, limit: number = 100, completeWords: boolean = false, ellipsis: string = '...'): string {
+    if (!value) return '';
+    if (value.length <= limit) return value;
+    
+    if (completeWords) {
+      limit = value.substring(0, limit).lastIndexOf(' ');
+    }
+    
+    return value.substring(0, limit) + ellipsis;
+  }
+}
+```
+
+- **Pure Pipes:** Keep pipes pure by default. Only use impure pipes when absolutely necessary.
+
+```typescript
+// Pure pipe (default)
+@Pipe({
+  name: 'sort',
+  standalone: true
+})
+export class SortPipe implements PipeTransform {
+  transform<T>(array: T[], property: keyof T): T[] {
+    if (!array || !property) return array;
+    return [...array].sort((a, b) => {
+      const aValue = a[property];
+      const bValue = b[property];
+      return aValue < bValue ? -1 : aValue > bValue ? 1 : 0;
+    });
+  }
+}
+
+// Impure pipe (only when needed)
+@Pipe({
+  name: 'filterBy',
+  standalone: true,
+  pure: false // Impure pipe, will run on every change detection cycle
+})
+export class FilterPipe implements PipeTransform {
+  transform<T>(items: T[], property: keyof T, value: any): T[] {
+    if (!items || !property) return items;
+    return items.filter(item => item[property] === value);
+  }
+}
+```
+
+- **Pipe Naming:** Use lowerCamelCase for pipe names and use a descriptive name that indicates the pipe's function.
+
+```typescript
+// Good pipe names
+name: 'truncate'
+name: 'fileSize'
+name: 'dateTimeFormat'
+
+// Avoid generic names
+name: 'format' // Too generic
+name: 'convert' // Unclear purpose
+```
+
+- **Type Safety:** Use TypeScript generics to make pipes type-safe.
+
+```typescript
+@Pipe({
+  name: 'pluck',
+  standalone: true
+})
+export class PluckPipe implements PipeTransform {
+  transform<T, K extends keyof T>(input: T[], key: K): T[K][] {
+    if (!input || !Array.isArray(input) || !key) return [];
+    return input.map(value => value[key]);
+  }
+}
+```
+
+- **Pipe Performance:** Be mindful of performance, especially with large data sets. Consider caching results or using memoization for expensive transformations.
+
+```typescript
+@Pipe({
+  name: 'expensiveTransform',
+  standalone: true
+})
+export class ExpensiveTransformPipe implements PipeTransform {
+  private lastValue: any;
+  private lastResult: any;
+  
+  transform(value: any): any {
+    // Simple memoization to avoid recalculating for the same input
+    if (value === this.lastValue) {
+      return this.lastResult;
+    }
+    
+    this.lastValue = value;
+    this.lastResult = this.performExpensiveCalculation(value);
+    return this.lastResult;
+  }
+  
+  private performExpensiveCalculation(value: any): any {
+    // Complex transformation logic here
+    return value;
+  }
+}
+```
+
+- **Chaining Pipes:** Design pipes that can be easily chained with other pipes. Focus on a single transformation per pipe.
+
+```typescript
+<!-- Good pipe chaining example in template -->
+{{ user.created | date:'short' | uppercase }}
+```
+
+- **Documentation:** Document pipe parameters clearly using JSDoc so that developers can easily understand how to use them.
+
+```typescript
+/**
+ * Truncates text to a specified length and adds an ellipsis.
+ * 
+ * @param value - The string to truncate
+ * @param limit - Maximum string length (default: 100)
+ * @param completeWords - Whether to keep complete words (default: false)
+ * @param ellipsis - String to add at the end (default: '...')
+ * 
+ * @example
+ * {{ 'This is a long text' | truncate:10:true }}
+ * Output: "This is..."
+ * 
+ * @return Truncated string
+ */
+@Pipe({
+  name: 'truncate',
+  standalone: true
+})
+export class TruncatePipe implements PipeTransform {
+  // Implementation
+}
+```
+
+- **Testing Pipes:** Create thorough unit tests for pipes, testing various input combinations and edge cases.
+
+```typescript
+describe('TruncatePipe', () => {
+  let pipe: TruncatePipe;
+  
+  beforeEach(() => {
+    pipe = new TruncatePipe();
+  });
+  
+  it('should truncate text if over specified limit', () => {
+    expect(pipe.transform('This is a test string', 10)).toBe('This is a ...');
+  });
+  
+  it('should not truncate text if under specified limit', () => {
+    expect(pipe.transform('Short', 10)).toBe('Short');
+  });
+  
+  it('should respect the completeWords flag', () => {
+    expect(pipe.transform('This is a test string', 10, true)).toBe('This is ...');
+  });
+  
+  it('should use custom ellipsis', () => {
+    expect(pipe.transform('This is a test string', 10, false, '***')).toBe('This is a ***');
+  });
+  
+  it('should handle null or undefined values', () => {
+    expect(pipe.transform(null as any)).toBe('');
+    expect(pipe.transform(undefined as any)).toBe('');
+  });
+});
+```
+
+- **Signal-Based Pipes:** For pipes that need internal state or reactivity, consider leveraging signals inside the pipe.
+
+```typescript
+@Pipe({
+  name: 'countdown',
+  standalone: true
+})
+export class CountdownPipe implements PipeTransform, OnDestroy {
+  private intervalRef: ReturnType<typeof setInterval> | null = null;
+  private lastTarget: Date | null = null;
+  private remaining = signal<string>('');
+  
+  transform(targetDate: Date): string {
+    if (!targetDate) return '';
+    
+    if (this.intervalRef && (!this.lastTarget || targetDate.getTime() !== this.lastTarget.getTime())) {
+      clearInterval(this.intervalRef);
+      this.intervalRef = null;
+    }
+    
+    if (!this.intervalRef) {
+      this.lastTarget = targetDate;
+      this.updateRemaining(targetDate);
+      
+      this.intervalRef = setInterval(() => {
+        this.updateRemaining(targetDate);
+      }, 1000);
+    }
+    
+    return this.remaining();
+  }
+  
+  private updateRemaining(targetDate: Date): void {
+    const now = new Date();
+    const diff = targetDate.getTime() - now.getTime();
+    
+    if (diff <= 0) {
+      this.remaining.set('Expired');
+      if (this.intervalRef) {
+        clearInterval(this.intervalRef);
+        this.intervalRef = null;
+      }
+      return;
+    }
+    
+    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+    
+    this.remaining.set(`${days}d ${hours}h ${minutes}m ${seconds}s`);
+  }
+  
+  ngOnDestroy(): void {
+    if (this.intervalRef) {
+      clearInterval(this.intervalRef);
+      this.intervalRef = null;
+    }
+  }
+}
+```

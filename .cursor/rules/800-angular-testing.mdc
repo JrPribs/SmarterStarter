@@ -1,0 +1,444 @@
+---
+description: Angular Testing Best Practices
+globs: 
+alwaysApply: false
+---
+
+## Angular Testing Best Practices
+
+- **Component Testing Setup:** Use TestBed to configure the test environment for components.
+
+```typescript
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
+import { HeroDetailComponent } from './hero-detail.component';
+import { HeroService } from '../hero.service';
+import { of } from 'rxjs';
+
+describe('HeroDetailComponent', () => {
+  let component: HeroDetailComponent;
+  let fixture: ComponentFixture<HeroDetailComponent>;
+  let mockHeroService: jasmine.SpyObj<HeroService>;
+  
+  beforeEach(() => {
+    mockHeroService = jasmine.createSpyObj(['getHero', 'updateHero']);
+    
+    TestBed.configureTestingModule({
+      imports: [HeroDetailComponent], // For standalone component
+      providers: [
+        { provide: HeroService, useValue: mockHeroService }
+      ]
+    });
+    
+    fixture = TestBed.createComponent(HeroDetailComponent);
+    component = fixture.componentInstance;
+  });
+  
+  it('should create', () => {
+    expect(component).toBeTruthy();
+  });
+  
+  // More tests...
+});
+```
+
+- **Testing Signal Inputs:** Test signal inputs by directly setting them.
+
+```typescript
+it('should display hero name', () => {
+  // Arrange
+  const testHero = { id: 1, name: 'SuperDude' };
+  component.hero.set(testHero); // Set the signal input directly
+  
+  // Act
+  fixture.detectChanges();
+  
+  // Assert
+  const nameElement = fixture.debugElement.query(By.css('h2'));
+  expect(nameElement.nativeElement.textContent).toContain('SUPERDUDE');
+});
+```
+
+- **Testing Computed Values:** Test computed values and their reactivity.
+
+```typescript
+it('should compute full name correctly', () => {
+  // Arrange
+  component.firstName.set('John');
+  component.lastName.set('Doe');
+  
+  // Assert
+  expect(component.fullName()).toBe('John Doe');
+  
+  // Act - update a dependency
+  component.firstName.set('Jane');
+  
+  // Assert - computed value should update
+  expect(component.fullName()).toBe('Jane Doe');
+});
+```
+
+- **Testing Effects:** Test that effects perform the expected actions when signals change.
+
+```typescript
+it('should load user data when userId changes', fakeAsync(() => {
+  // Arrange
+  const testUser = { id: '123', name: 'Test User' };
+  mockUserService.getUser.and.returnValue(Promise.resolve(testUser));
+  
+  // Act - trigger the effect by setting userId
+  component.userId.set('123');
+  tick(); // Process the async operation
+  
+  // Assert
+  expect(mockUserService.getUser).toHaveBeenCalledWith('123');
+  expect(component.user()).toEqual(testUser);
+}));
+```
+
+- **Testing Template Interaction:** Test user interactions with the component.
+
+```typescript
+it('should call save method when save button is clicked', () => {
+  // Arrange
+  spyOn(component, 'save');
+  const testHero = { id: 1, name: 'SuperDude' };
+  component.hero.set(testHero);
+  fixture.detectChanges();
+  
+  // Act
+  const saveButton = fixture.debugElement.query(By.css('button.save'));
+  saveButton.triggerEventHandler('click', null);
+  
+  // Assert
+  expect(component.save).toHaveBeenCalled();
+});
+```
+
+- **Testing Outputs:** Test that outputs emit the expected values.
+
+```typescript
+it('should emit heroChange when save is called', () => {
+  // Arrange
+  const testHero = { id: 1, name: 'SuperDude' };
+  component.hero.set(testHero);
+  let emittedHero: Hero | undefined;
+  component.heroChange.subscribe((hero: Hero) => emittedHero = hero);
+  
+  // Act
+  component.save();
+  
+  // Assert
+  expect(emittedHero).toEqual(testHero);
+});
+```
+
+- **Testing Router Integration:** Test components that interact with the router.
+
+```typescript
+import { RouterTestingHarness } from '@angular/router/testing';
+
+it('should load hero details based on route parameter', async () => {
+  // Arrange
+  const testHero = { id: 42, name: 'Test Hero' };
+  mockHeroService.getHero.and.returnValue(of(testHero));
+  
+  // Create router testing harness
+  const harness = await RouterTestingHarness.create();
+  
+  // Act - navigate to route with parameter
+  await harness.navigateByUrl('/heroes/42');
+  
+  // Get the instantiated component
+  const component = await harness.getComponentInstance<HeroDetailComponent>();
+  
+  // Assert
+  expect(component.id()).toBe('42'); // Input binding should work
+  expect(mockHeroService.getHero).toHaveBeenCalledWith(42);
+  expect(component.hero()).toEqual(testHero);
+});
+```
+
+- **Testing Services with Signal State:** Test services that use signals for state.
+
+```typescript
+describe('CartService', () => {
+  let service: CartService;
+  
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      providers: [CartService]
+    });
+    service = TestBed.inject(CartService);
+  });
+  
+  it('should add item to cart', () => {
+    // Arrange
+    const initialCount = service.itemCount();
+    const testItem = { id: 1, name: 'Test Product', price: 10 };
+    
+    // Act
+    service.addToCart(testItem);
+    
+    // Assert
+    expect(service.itemCount()).toBe(initialCount + 1);
+    expect(service.items().find(item => item.id === 1)).toBeTruthy();
+  });
+  
+  it('should calculate correct total', () => {
+    // Arrange
+    service.clearCart(); // Start with empty cart
+    
+    // Act
+    service.addToCart({ id: 1, name: 'Item 1', price: 10 });
+    service.addToCart({ id: 2, name: 'Item 2', price: 20 });
+    
+    // Assert
+    expect(service.totalPrice()).toBe(30);
+    
+    // Act - update quantity
+    service.updateQuantity(1, 2);
+    
+    // Assert - total should update
+    expect(service.totalPrice()).toBe(40); // 10*2 + 20
+  });
+});
+```
+
+- **Testing HTTP Requests:** Test services that make HTTP requests.
+
+```typescript
+import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
+
+describe('HeroService', () => {
+  let service: HeroService;
+  let httpMock: HttpTestingController;
+  
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      imports: [HttpClientTestingModule],
+      providers: [HeroService]
+    });
+    
+    service = TestBed.inject(HeroService);
+    httpMock = TestBed.inject(HttpTestingController);
+  });
+  
+  afterEach(() => {
+    httpMock.verify(); // Verify there are no outstanding HTTP requests
+  });
+  
+  it('should fetch heroes', () => {
+    // Arrange
+    const mockHeroes = [{ id: 1, name: 'Hero 1' }, { id: 2, name: 'Hero 2' }];
+    
+    // Act
+    let actualHeroes: Hero[] = [];
+    service.getHeroes().subscribe(heroes => {
+      actualHeroes = heroes;
+    });
+    
+    // Assert - HTTP request verification
+    const req = httpMock.expectOne('api/heroes');
+    expect(req.request.method).toBe('GET');
+    
+    // Respond with mock data
+    req.flush(mockHeroes);
+    
+    // Assert - result verification
+    expect(actualHeroes).toEqual(mockHeroes);
+  });
+});
+```
+
+- **Testing Pipes:** Create isolated tests for pipes.
+
+```typescript
+import { TruncatePipe } from './truncate.pipe';
+
+describe('TruncatePipe', () => {
+  let pipe: TruncatePipe;
+  
+  beforeEach(() => {
+    pipe = new TruncatePipe();
+  });
+  
+  it('should truncate text if over specified limit', () => {
+    expect(pipe.transform('This is a test string', 10)).toBe('This is a ...');
+  });
+  
+  it('should not truncate text if under specified limit', () => {
+    expect(pipe.transform('Short', 10)).toBe('Short');
+  });
+  
+  it('should respect the completeWords flag', () => {
+    expect(pipe.transform('This is a test string', 10, true)).toBe('This is ...');
+  });
+  
+  it('should use custom ellipsis', () => {
+    expect(pipe.transform('This is a test string', 10, false, '***')).toBe('This is a ***');
+  });
+});
+```
+
+- **Testing Directives:** Test directives in isolation or with a test host component.
+
+```typescript
+import { Component, DebugElement } from '@angular/core';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { By } from '@angular/platform-browser';
+import { HighlightDirective } from './highlight.directive';
+
+// Test host component
+@Component({
+  template: `<div [appHighlight]="color">Test</div>`
+})
+class TestHostComponent {
+  color = 'yellow';
+}
+
+describe('HighlightDirective', () => {
+  let fixture: ComponentFixture<TestHostComponent>;
+  let des: DebugElement[];
+  
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      imports: [HighlightDirective], // If standalone directive
+      declarations: [TestHostComponent],
+    });
+    
+    fixture = TestBed.createComponent(TestHostComponent);
+    fixture.detectChanges();
+    
+    // Find elements with the directive
+    des = fixture.debugElement.queryAll(By.directive(HighlightDirective));
+  });
+  
+  it('should have one highlighted element', () => {
+    expect(des.length).toBe(1);
+  });
+  
+  it('should color the background yellow on mouseenter', () => {
+    // Get the element
+    const el = des[0].nativeElement as HTMLElement;
+    
+    // Trigger the directive's @HostListener
+    des[0].triggerEventHandler('mouseenter', null);
+    fixture.detectChanges();
+    
+    // Check the element's style
+    expect(el.style.backgroundColor).toBe('yellow');
+    
+    // Trigger mouseleave
+    des[0].triggerEventHandler('mouseleave', null);
+    fixture.detectChanges();
+    
+    // Background should be cleared
+    expect(el.style.backgroundColor).toBe('');
+  });
+});
+```
+
+- **Mocking Dependencies:** Use TestBed's provider mechanism to mock dependencies.
+
+```typescript
+const mockAuthService = {
+  isLoggedIn: jasmine.createSpy('isLoggedIn').and.returnValue(true),
+  currentUser: signal({
+    id: '123',
+    name: 'Test User',
+    roles: ['user']
+  })
+};
+
+TestBed.configureTestingModule({
+  imports: [ProfileComponent],
+  providers: [
+    { provide: AuthService, useValue: mockAuthService }
+  ]
+});
+```
+
+- **Testing with Component Harnesses:** Use component harnesses for more maintainable tests, especially with Angular Material components.
+
+```typescript
+import { HarnessLoader } from '@angular/cdk/testing';
+import { TestbedHarnessEnvironment } from '@angular/cdk/testing/testbed';
+import { MatButtonHarness } from '@angular/material/button/testing';
+
+describe('MaterialButtonDemo', () => {
+  let fixture: ComponentFixture<MaterialButtonDemoComponent>;
+  let loader: HarnessLoader;
+  
+  beforeEach(() => {
+    TestBed.configureTestingModule({
+      imports: [MaterialButtonDemoComponent]
+    });
+    
+    fixture = TestBed.createComponent(MaterialButtonDemoComponent);
+    loader = TestbedHarnessEnvironment.loader(fixture);
+  });
+  
+  it('should find button by text', async () => {
+    // Find the button harness
+    const button = await loader.getHarness(
+      MatButtonHarness.with({ text: 'Submit' })
+    );
+    
+    // Use the harness API to interact with the button
+    expect(await button.isDisabled()).toBe(false);
+    await button.click();
+    
+    // Verify component state
+    expect(fixture.componentInstance.submitClicked).toBe(true);
+  });
+});
+```
+
+- **Testing NGRx Signal Stores:** Test signal store functionality.
+
+```typescript
+describe('TodosStore', () => {
+  let store: typeof TodosStore;
+  let mockTodosService: jasmine.SpyObj<TodosService>;
+  
+  beforeEach(() => {
+    mockTodosService = jasmine.createSpyObj(['getTodos', 'addTodo']);
+    
+    TestBed.configureTestingModule({
+      providers: [
+        TodosStore,
+        { provide: TodosService, useValue: mockTodosService }
+      ]
+    });
+    
+    store = TestBed.inject(TodosStore);
+  });
+  
+  it('should add a todo', () => {
+    // Initial state check
+    expect(store.todos().length).toBe(0);
+    
+    // Act
+    store.addTodo('Test Todo');
+    
+    // Assert
+    expect(store.todos().length).toBe(1);
+    expect(store.todos()[0].title).toBe('Test Todo');
+  });
+  
+  it('should update todos when loadTodos is called', fakeAsync(() => {
+    // Arrange
+    const mockTodos = [{ id: '1', title: 'Test', completed: false }];
+    mockTodosService.getTodos.and.returnValue(of(mockTodos));
+    
+    // Act
+    store.loadTodos();
+    tick(); // Process async operation
+    
+    // Assert
+    expect(store.todos()).toEqual(mockTodos);
+    expect(store.status()).toBe('idle');
+  }));
+});
+```

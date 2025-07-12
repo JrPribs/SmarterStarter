@@ -1,0 +1,513 @@
+---
+description: Angular Data Flow Patterns. where/how write and read data
+globs: 
+alwaysApply: false
+---
+
+## Angular Data Flow Patterns
+
+- **Bi-directional Data Flow Architecture:** Follow a consistent data flow pattern in the application:
+
+```
+                    READ (Direct)
+           ┌─────────────────────────┐
+           │                         │
+           ▼                         │
+┌───────────────────┐     ┌───────────────────┐
+│                   │     │                   │
+│    Components     │     │   Global State    │
+│    (Consumers)    │     │    (Storage)      │
+│                   │     │                   │
+└───────────────────┘     └───────────────────┘
+           │                         ▲
+           ▼                         │
+┌───────────────────┐                │
+│                   │                │
+│     Services      │────────────────┘
+│                   │
+└───────────────────┘
+```
+
+- **Read Operations (Global State to Component):** Components read directly from the global state via store signals.
+
+```typescript
+@Component({
+  selector: 'app-product-detail',
+  template: `
+    @if (isLoading()) {
+      <app-spinner></app-spinner>
+    } @else if (product()) {
+      <h1>{{ product()?.name }}</h1>
+      <p>{{ product()?.description }}</p>
+      <p>Price: {{ product()?.price | currency }}</p>
+      
+      <button (click)="addToCart(product()!.id)">Add to Cart</button>
+    } @else {
+      <p>Product not found</p>
+    }
+  `
+})
+export class ProductDetailComponent {
+  // Read directly from store signals
+  product = inject(ProductStore).selectedProduct;
+  isLoading = inject(ProductStore).loading;
+  
+  constructor(private cartService: CartService) {}
+  
+  // Action through service
+  addToCart(productId: string): void {
+    this.cartService.addToCart(productId);
+  }
+}
+```
+
+- **Write Operations (Component to Global State):** Components write to global state through services, not directly.
+
+```typescript
+// ❌ AVOID: Component manipulating state directly
+@Component({...})
+export class BadComponent {
+  constructor(private userStore: UserStore) {}
+  
+  updateUser() {
+    // Direct store manipulation from component is an anti-pattern
+    this.userStore.setUser({
+      id: '123',
+      name: 'John Doe',
+      email: 'john@example.com'
+    });
+  }
+}
+
+// ✅ GOOD: Component using service as mediator
+@Component({...})
+export class GoodComponent {
+  // Reading from store is fine
+  user = inject(UserStore).user;
+  
+  // Writing goes through service
+  constructor(private userService: UserService) {}
+  
+  updateUser() {
+    // Service handles validation, API calls, and store updates
+    this.userService.updateUser({
+      id: '123',
+      name: 'John Doe',
+      email: 'john@example.com'
+    });
+  }
+}
+```
+
+- **Service as Mediator:** Services handle business logic, API communication, and state updates.
+
+```typescript
+@Injectable({
+  providedIn: 'root'
+})
+export class ProductService {
+  constructor(
+    private http: HttpClient,
+    private productStore: ProductStore
+  ) {}
+  
+  loadProducts(): Observable<Product[]> {
+    // Update loading state
+    this.productStore.setLoading(true);
+    
+    // Call API
+    return this.http.get<Product[]>('/api/products').pipe(
+      tap(products => {
+        // Update state with returned data
+        this.productStore.setProducts(products);
+        this.productStore.setLoading(false);
+      }),
+      catchError(error => {
+        // Update error state
+        this.productStore.setError(error.message);
+        this.productStore.setLoading(false);
+        return throwError(() => error);
+      })
+    );
+  }
+  
+  addProduct(product: Product): Observable<Product> {
+    // Validate product
+    if (!this.validateProduct(product)) {
+      return throwError(() => new Error('Invalid product'));
+    }
+    
+    // Call API
+    return this.http.post<Product>('/api/products', product).pipe(
+      tap(newProduct => {
+        // Update store with new product
+        this.productStore.addProduct(newProduct);
+      })
+    );
+  }
+  
+  private validateProduct(product: Product): boolean {
+    // Business logic validation
+    return !!product.name && product.price > 0;
+  }
+}
+```
+
+- **Layer Responsibilities:** Each layer has clear responsibilities:
+
+1. **Global State Layer (Store):**
+   - Maintains the single source of truth for app state
+   - Exposes reactive state via signals
+   - Provides derived/computed state
+   - Offers methods for state modification
+
+2. **Service Layer:**
+   - Implements business logic
+   - Handles data fetching and API communication
+   - Processes and validates data
+   - Orchestrates complex workflows
+   - Updates global state
+
+3. **Component Layer:**
+   - Consumes store signals for display
+   - Creates local computed signals for component-specific derived state
+   - Dispatches actions through service methods
+   - Maintains UI-only state
+   - Handles user interactions
+
+- **Avoid Anti-patterns:**
+
+```typescript
+// ❌ AVOID: Components with business logic
+@Component({...})
+export class BadOrderComponent {
+  orders = inject(OrderStore).orders;
+  
+  processRefund(orderId: string) {
+    // Business logic in component is an anti-pattern
+    const order = this.orders().find(o => o.id === orderId);
+    if (!order) return;
+    
+    if (order.status !== 'delivered' || 
+        new Date().getTime() - new Date(order.date).getTime() > 30 * 24 * 60 * 60 * 1000) {
+      alert('Refund not possible for this order');
+      return;
+    }
+    
+    // API call in component is an anti-pattern
+    this.http.post(`/api/orders/${orderId}/refund`, {}).subscribe(/* ... */);
+  }
+}
+
+// ✅ GOOD: Component delegating to service
+@Component({...})
+export class GoodOrderComponent {
+  orders = inject(OrderStore).orders;
+  
+  constructor(private orderService: OrderService) {}
+  
+  requestRefund(orderId: string) {
+    // Delegate business logic to service
+    this.orderService.processRefund(orderId).subscribe({
+      error: err => this.handleError(err)
+    });
+  }
+  
+  private handleError(error: any): void {
+    // UI-specific error handling is appropriate in components
+    // This could trigger a notification component, dialog, etc.
+  }
+}
+```
+
+- **Data Flow for Forms:** When working with forms, store the draft state in the component and only update global state on submission.
+
+```typescript
+@Component({...})
+export class UserProfileFormComponent {
+  // Global state
+  user = inject(UserStore).user;
+  
+  // Local form state
+  nameInput = signal('');
+  emailInput = signal('');
+  
+  constructor(
+    private userService: UserService,
+    private fb: FormBuilder
+  ) {
+    // Initialize form when user changes
+    effect(() => {
+      const currentUser = this.user();
+      if (currentUser) {
+        this.nameInput.set(currentUser.name);
+        this.emailInput.set(currentUser.email);
+      }
+    });
+  }
+  
+  saveProfile() {
+    // Only update global state (via service) on form submission
+    this.userService.updateProfile({
+      name: this.nameInput(),
+      email: this.emailInput()
+    });
+  }
+}
+```
+
+- **Derived State:** Create computed values at the appropriate layer. Global derivations in the store, component-specific derivations in the component.
+
+```typescript
+// Global store with shared computed values
+@Injectable({
+  providedIn: 'root'
+})
+export class CartStore {
+  private _items = signal<CartItem[]>([]);
+  items = this._items.asReadonly();
+  
+  // Global derivations relevant across components
+  totalPrice = computed(() => 
+    this._items().reduce((sum, item) => sum + item.price * item.quantity, 0)
+  );
+  
+  itemCount = computed(() => 
+    this._items().reduce((sum, item) => sum + item.quantity, 0)
+  );
+  
+  // State update methods
+  setItems(items: CartItem[]) {
+    this._items.set(items);
+  }
+  
+  // Other methods...
+}
+
+// Component with local derivations
+@Component({...})
+export class CartSummaryComponent {
+  // Global state
+  items = inject(CartStore).items;
+  totalPrice = inject(CartStore).totalPrice;
+  
+  // Local derivations specific to this view
+  hasFreeShipping = computed(() => this.totalPrice() > 50);
+  
+  formattedTotal = computed(() => 
+    `$${this.totalPrice().toFixed(2)}`
+  );
+  
+  taxAmount = computed(() => {
+    // This tax calculation is view-specific formatting
+    return this.totalPrice() * 0.08;
+  });
+}
+```
+
+- **Multiple Store Coordination in Services:** Have services coordinate between multiple stores when needed.
+
+```typescript
+@Injectable({
+  providedIn: 'root'
+})
+export class CheckoutService {
+  constructor(
+    private cartStore: CartStore,
+    private orderStore: OrderStore,
+    private userStore: UserStore,
+    private http: HttpClient
+  ) {}
+  
+  checkout(): Observable<Order> {
+    // Cross-store coordination is handled by service
+    const user = this.userStore.user();
+    const cartItems = this.cartStore.items();
+    
+    if (!user) {
+      this.orderStore.setError('User must be logged in to checkout');
+      return throwError(() => new Error('User must be logged in'));
+    }
+    
+    if (!cartItems.length) {
+      this.orderStore.setError('Cart is empty');
+      return throwError(() => new Error('Cart is empty'));
+    }
+    
+    // Update multiple stores
+    this.orderStore.setProcessing(true);
+    
+    // API call
+    return this.http.post<Order>('/api/orders', {
+      userId: user.id,
+      items: cartItems,
+      shippingAddress: user.defaultAddress
+    }).pipe(
+      tap(order => {
+        // Update order store
+        this.orderStore.addOrder(order);
+        this.orderStore.setProcessing(false);
+        
+        // Clear cart
+        this.cartStore.setItems([]);
+      }),
+      catchError(error => {
+        this.orderStore.setError(error.message);
+        this.orderStore.setProcessing(false);
+        return throwError(() => error);
+      })
+    );
+  }
+}
+```
+
+- **Data Loading Pattern:** Use a consistent pattern for loading data.
+
+```typescript
+@Component({
+  selector: 'app-product-list',
+  template: `
+    @if (loading()) {
+      <app-spinner></app-spinner>
+    } @else if (error()) {
+      <app-error [message]="error()"></app-error>
+    } @else if (products().length === 0) {
+      <app-empty-state
+        message="No products found"
+        icon="inventory"
+      ></app-empty-state>
+    } @else {
+      <div class="product-grid">
+        @for (product of products(); track product.id) {
+          <app-product-card [product]="product"></app-product-card>
+        }
+      </div>
+    }
+  `
+})
+export class ProductListComponent implements OnInit {
+  // Store signals
+  products = inject(ProductStore).products;
+  loading = inject(ProductStore).loading;
+  error = inject(ProductStore).error;
+  
+  constructor(private productService: ProductService) {}
+  
+  ngOnInit() {
+    // Trigger data load through service
+    this.productService.loadProducts().subscribe();
+  }
+}
+```
+
+- **Local Component State:** Keep UI-specific state local to components, not in the global store.
+
+```typescript
+@Component({...})
+export class DataTableComponent {
+  // Global state
+  items = inject(DataStore).items;
+  
+  // Local UI state
+  currentPage = signal(1);
+  pageSize = signal(10);
+  sortField = signal<string | null>(null);
+  sortDirection = signal<'asc' | 'desc'>('asc');
+  
+  // Local derived state
+  paginatedItems = computed(() => {
+    const start = (this.currentPage() - 1) * this.pageSize();
+    const end = start + this.pageSize();
+    let result = this.items();
+    
+    // Sort if needed
+    if (this.sortField()) {
+      const field = this.sortField()!;
+      result = [...result].sort((a, b) => {
+        const aVal = a[field];
+        const bVal = b[field];
+        const dir = this.sortDirection() === 'asc' ? 1 : -1;
+        return aVal < bVal ? -dir : aVal > bVal ? dir : 0;
+      });
+    }
+    
+    // Paginate
+    return result.slice(start, end);
+  });
+  
+  totalPages = computed(() => {
+    return Math.ceil(this.items().length / this.pageSize());
+  });
+  
+  // UI event handlers
+  nextPage() {
+    if (this.currentPage() < this.totalPages()) {
+      this.currentPage.update(p => p + 1);
+    }
+  }
+  
+  prevPage() {
+    if (this.currentPage() > 1) {
+      this.currentPage.update(p => p - 1);
+    }
+  }
+  
+  sortBy(field: string) {
+    if (this.sortField() === field) {
+      // Toggle direction if already sorting by this field
+      this.sortDirection.update(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      // New sort field
+      this.sortField.set(field);
+      this.sortDirection.set('asc');
+    }
+  }
+}
+```
+
+- **Global vs. Local Derivation Decision:** Use this guideline to decide where to put derived state:
+
+```typescript
+// ✅ Global derived state (in store) when:
+// - Multiple components need the same derived value
+// - The derivation represents core business logic
+// - The value is part of the domain model
+// - The derived state needs to be persisted/restored
+
+interface CartState {
+  items: CartItem[];
+}
+
+@Injectable({...})
+export class CartStore {
+  private _items = signal<CartItem[]>([]);
+  items = this._items.asReadonly();
+  
+  // Total price is a business concept used across many views
+  totalPrice = computed(() => 
+    this._items().reduce((sum, item) => sum + item.price * item.quantity, 0)
+  );
+}
+
+// ✅ Local derived state (in component) when:
+// - Only one component needs the derived value
+// - The derivation is presentation-specific
+// - The value is for UI purposes only
+// - The derived state is temporary
+
+@Component({...})
+export class CartLineItemComponent {
+  @Input() item!: CartItem;
+  
+  // This formatted display is component-specific
+  formattedSubtotal = computed(() => {
+    const subtotal = this.item.price * this.item.quantity;
+    return `$${subtotal.toFixed(2)}`;
+  });
+  
+  // This highlighting is purely UI
+  isHighValue = computed(() => {
+    return this.item.price * this.item.quantity > 100;
+  });
+}
+```

@@ -1,0 +1,381 @@
+---
+description: Angular Services Best Practices
+globs: 
+alwaysApply: false
+---
+
+## Angular Services Best Practices
+
+- **Injectable Services:** Always use the `@Injectable()` decorator with `providedIn: 'root'` for singleton services.
+
+```typescript
+@Injectable({
+  providedIn: 'root'
+})
+export class DataService {
+  // Service implementation
+}
+```
+
+- **State Management Role:** Services should act as mediators between components and global state. They should contain business logic but not store state themselves.
+
+```typescript
+@Injectable({
+  providedIn: 'root'
+})
+export class OrderService {
+  constructor(private orderStore: OrderStore, private http: HttpClient) {}
+  
+  // Handle business logic and API communication before updating state
+  submitOrder(orderData: OrderData): Observable<Order> {
+    // Validate data
+    if (!this.validateOrder(orderData)) {
+      return throwError(() => new Error('Invalid order data'));
+    }
+    
+    // Call API
+    return this.http.post<Order>('/api/orders', orderData).pipe(
+      tap(newOrder => {
+        // Update store on success
+        this.orderStore.addOrder(newOrder);
+      })
+    );
+  }
+  
+  private validateOrder(order: OrderData): boolean {
+    // Business logic validation
+    return !!order.items.length && !!order.shippingAddress;
+  }
+}
+```
+
+- **Stateless Services:** Services should be stateless and not maintain their own state - delegate state management to stores.
+
+```typescript
+// ❌ AVOID: Service with internal state
+@Injectable({ providedIn: 'root' })
+export class BadCartService {
+  private items: CartItem[] = []; // Don't store state here
+  
+  addItem(item: CartItem): void {
+    this.items.push(item); // State in service is bad
+  }
+}
+
+// ✅ GOOD: Stateless service that updates store
+@Injectable({ providedIn: 'root' })
+export class GoodCartService {
+  constructor(private cartStore: CartStore) {}
+  
+  addItem(item: CartItem): void {
+    // Business logic, validation, etc.
+    if (!item.quantity) item.quantity = 1;
+    
+    // Update state in store, not service
+    this.cartStore.addItem(item);
+  }
+}
+```
+
+- **Business Logic:** Place all business logic in services, not in components or stores.
+
+```typescript
+@Injectable({
+  providedIn: 'root'
+})
+export class PaymentService {
+  constructor(
+    private paymentStore: PaymentStore,
+    private http: HttpClient,
+    private authService: AuthService
+  ) {}
+  
+  processPayment(paymentInfo: PaymentInfo): Observable<PaymentResult> {
+    // Business logic
+    const enrichedPayment = this.enrichPaymentData(paymentInfo);
+    
+    // Start processing - update UI state
+    this.paymentStore.setProcessing(true);
+    
+    // Call API
+    return this.http.post<PaymentResult>('/api/payments', enrichedPayment).pipe(
+      tap(result => {
+        if (result.success) {
+          // Update multiple states based on business rules
+          this.paymentStore.addPayment(result);
+        } else {
+          this.paymentStore.setError(result.error);
+        }
+      }),
+      finalize(() => {
+        this.paymentStore.setProcessing(false);
+      })
+    );
+  }
+  
+  private enrichPaymentData(paymentInfo: PaymentInfo): EnrichedPaymentInfo {
+    // Complex business logic
+    return {
+      ...paymentInfo,
+      userId: this.authService.getCurrentUserId(),
+      timestamp: new Date().toISOString(),
+      // Add other derived properties
+    };
+  }
+}
+```
+
+- **Signal/Observable Interop:** Use toSignal() and toObservable() for interop between RxJS observables and signals.
+
+```typescript
+@Injectable({
+  providedIn: 'root'
+})
+export class ProductService {
+  constructor(
+    private http: HttpClient,
+    private productStore: ProductStore
+  ) {}
+
+  // Load products and update store
+  loadProducts(): Observable<Product[]> {
+    return this.http.get<Product[]>('/api/products').pipe(
+      tap(products => {
+        this.productStore.setProducts(products);
+      })
+    );
+  }
+  
+  // Perform business logic before updating store
+  addProduct(product: Product): Observable<Product> {
+    // Enrichment and validation
+    const enrichedProduct = this.prepareProductData(product);
+    
+    return this.http.post<Product>('/api/products', enrichedProduct).pipe(
+      tap(newProduct => {
+        this.productStore.addProduct(newProduct);
+      })
+    );
+  }
+  
+  private prepareProductData(product: Product): Product {
+    // Business logic to prepare data
+    return {
+      ...product,
+      createdAt: new Date().toISOString(),
+      // Other transformations
+    };
+  }
+}
+```
+
+- **Data Services:** Create services to manage data access and abstract API calls. Never call HTTP directly from components.
+
+```typescript
+@Injectable({
+  providedIn: 'root'
+})
+export class HeroService {
+  constructor(
+    private http: HttpClient,
+    private heroStore: HeroStore
+  ) {}
+  
+  getHeroes(): Observable<Hero[]> {
+    // First update store to show loading state
+    this.heroStore.setLoading(true);
+    
+    return this.http.get<Hero[]>('/api/heroes').pipe(
+      tap(heroes => {
+        // Update store with data
+        this.heroStore.setHeroes(heroes);
+      }),
+      catchError(error => {
+        // Handle error and update store
+        this.heroStore.setError('Failed to load heroes');
+        console.error('Error fetching heroes', error);
+        return of([]);
+      }),
+      finalize(() => {
+        // Always reset loading state
+        this.heroStore.setLoading(false);
+      })
+    );
+  }
+}
+```
+
+- **Error Handling:** Centralize error handling in services, not components.
+
+```typescript
+private handleError<T>(operation = 'operation', result?: T) {
+  return (error: any): Observable<T> => {
+    // Log error
+    console.error(`${operation} failed: ${error.message}`);
+    
+    // Update error state in store
+    this.errorStore.setError({
+      operation,
+      message: error.message,
+      timestamp: new Date()
+    });
+    
+    // Optional: send to error monitoring service
+    this.logService.logError(error);
+    
+    // Let the app keep running by returning a safe result
+    return of(result as T);
+  };
+}
+```
+
+- **Service Composition:** Compose services by injecting one service into another rather than duplicating functionality.
+
+```typescript
+@Injectable({
+  providedIn: 'root'
+})
+export class OrderService {
+  constructor(
+    private userService: UserService,
+    private paymentService: PaymentService,
+    private inventoryService: InventoryService,
+    private orderStore: OrderStore,
+    private http: HttpClient
+  ) {}
+  
+  createOrder(orderData: OrderData): Observable<Order> {
+    // Complex workflow orchestration using other services
+    return this.userService.validateUserAddress(orderData.address).pipe(
+      switchMap(validAddress => {
+        if (!validAddress) {
+          this.orderStore.setError('Invalid address');
+          return throwError(() => new Error('Invalid address'));
+        }
+        
+        return this.inventoryService.checkInventory(orderData.items);
+      }),
+      switchMap(inventoryCheck => {
+        if (!inventoryCheck.available) {
+          this.orderStore.setError('Items not available');
+          return throwError(() => new Error('Items not in stock'));
+        }
+        
+        return this.paymentService.processPayment(orderData.payment);
+      }),
+      switchMap(paymentResult => {
+        return this.http.post<Order>('/api/orders', {
+          ...orderData,
+          paymentId: paymentResult.id
+        });
+      }),
+      tap(newOrder => {
+        // Update store with new order
+        this.orderStore.addOrder(newOrder);
+      })
+    );
+  }
+}
+```
+
+- **Single Responsibility:** Each service should have a single responsibility. Split large services into smaller ones with focused purposes.
+
+- **Pure Functions:** Prefer pure functions for data transformations within services.
+
+```typescript
+private transformApiResponse(response: ApiResponse): ProcessedData {
+  // Pure transformation that doesn't depend on service state
+  return {
+    id: response.id,
+    name: response.name.trim(),
+    createdAt: new Date(response.created_at)
+  };
+}
+```
+
+- **Action Orchestration:** Services should orchestrate complex workflows with one method per user intent, even if it requires multiple state updates.
+
+```typescript
+@Injectable({
+  providedIn: 'root'
+})
+export class CheckoutService {
+  constructor(
+    private cartStore: CartStore,
+    private orderStore: OrderStore,
+    private paymentStore: PaymentStore,
+    private http: HttpClient
+  ) {}
+  
+  // One public method that handles the entire checkout process
+  checkout(paymentDetails: PaymentDetails): Observable<OrderConfirmation> {
+    // Update UI state
+    this.orderStore.setProcessing(true);
+    
+    // Get current cart items
+    const cartItems = this.cartStore.items();
+    
+    // Validation
+    if (!cartItems.length) {
+      this.orderStore.setError('Cart is empty');
+      this.orderStore.setProcessing(false);
+      return throwError(() => new Error('Cart is empty'));
+    }
+    
+    // Process API calls in sequence
+    return this.validateInventory(cartItems).pipe(
+      switchMap(() => this.processPayment(paymentDetails)),
+      switchMap(paymentResult => this.createOrder(cartItems, paymentResult)),
+      tap(confirmation => {
+        // Multiple store updates on success
+        this.orderStore.addOrder(confirmation.order);
+        this.cartStore.clearCart();
+        this.paymentStore.addPayment(confirmation.payment);
+      }),
+      catchError(error => {
+        this.orderStore.setError(error.message);
+        return throwError(() => error);
+      }),
+      finalize(() => {
+        this.orderStore.setProcessing(false);
+      })
+    );
+  }
+  
+  // Private methods for each step
+  private validateInventory(items: CartItem[]): Observable<void> { /* ... */ }
+  private processPayment(details: PaymentDetails): Observable<PaymentResult> { /* ... */ }
+  private createOrder(items: CartItem[], payment: PaymentResult): Observable<OrderConfirmation> { /* ... */ }
+}
+```
+
+- **Avoid Side Effects in Pure Functions:** Keep transformation functions pure without side effects.
+
+```typescript
+// ❌ AVOID: Transformation with side effects
+private processUser(user: User): User {
+  this.userStore.setLastAccessed(new Date()); // Side effect!
+  return {
+    ...user,
+    fullName: `${user.firstName} ${user.lastName}`
+  };
+}
+
+// ✅ GOOD: Pure transformation
+private processUser(user: User): User {
+  return {
+    ...user,
+    fullName: `${user.firstName} ${user.lastName}`
+  };
+}
+
+// Then in the public method, handle side effects:
+getUser(id: string): Observable<User> {
+  return this.http.get<User>(`/api/users/${id}`).pipe(
+    map(user => this.processUser(user)), // Pure transformation
+    tap(() => {
+      this.userStore.setLastAccessed(new Date()); // Side effect after transformation
+    })
+  );
+}
+```
