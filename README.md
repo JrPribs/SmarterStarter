@@ -17,7 +17,7 @@ This is an Angular v20+ Firebase project starter for my boy Claude code. The pro
 
 ## 🚨 CRITICAL: Coding Standards
 
-**YOU MUST FOLLOW THE CODING STANDARDS IN `/coding-standards/`**. These are non-negotiable and override any default behaviors. Key highlights:
+**YOU MUST FOLLOW THE CODING STANDARDS IN `./CODING_STANDARDS/`**. These are non-negotiable and override any default behaviors. Key highlights:
 
 ### Router-First Architecture (MANDATORY)
 - **Initial data loading** should use resolvers (90% of cases)

@@ -1,5 +1,13 @@
 # Angular Coding Standards
 
+## 📚 Law Code Quick Index
+
+**Router (CS-R)**: R01-R04 | **Components (CS-C)**: C01-C05 | **Templates (CS-T)**: T01-T04  
+**State (CS-S)**: S01-S05 | **Services (CS-V)**: V01-V04 | **Async (CS-A)**: A01-A04  
+**Files (CS-F)**: F01-F05 | **Testing (CS-X)**: X01-X04 | **Quality (CS-Q)**: Q01-Q04
+
+> Use Ctrl+F to search for any law code (e.g., "CS-R01") to jump directly to the rule.
+
 ---
 
 ## 🎯 Core Foundation: Router-First Architecture
@@ -10,7 +18,7 @@
 bootstrapApplication(AppComponent, {
   providers: [
     provideRouter(routes, 
-      withComponentInputBinding() // REQUIRED - enables automatic input binding
+      withComponentInputBinding() // [CS-R01] REQUIRED - enables automatic input binding
     ),
     // other providers...
   ]
@@ -19,8 +27,8 @@ bootstrapApplication(AppComponent, {
 
 ### Routing Strategy
 - **Route Everything**: Every major view should be a route
-- **Resolver Pattern**: All data loading happens in resolvers, NOT in components
-- **Auto-Binding**: Resolver data automatically populates component inputs
+- **Resolver Pattern**: [CS-R03] All data loading happens in resolvers, NOT in components
+- **Auto-Binding**: [CS-R04] Resolver data automatically populates component inputs
 
 
 ### Route + Resolver + Component Pattern
@@ -35,7 +43,7 @@ bootstrapApplication(AppComponent, {
   }
 }
 
-// 2. Functional resolver fetches data
+// 2. [CS-R02] Functional resolver fetches data
 export const userResolver: ResolveFn<User> = (route) => {
   const userService = inject(UserService);
   return userService.getById(route.params['id']);
@@ -67,11 +75,11 @@ export class UserProfileComponent {
 
 ### Single Responsibility
 - Each component does ONE thing well
-- File size: Keep under ~300 lines each (TS/HTML/SCSS)
+- [CS-C03] File size: Keep under ~300 lines each (TS/HTML/SCSS)
 - Descriptive naming: `UserProfileComponent`, `ProductCardComponent`
 
 ### Smart File Separation
-- **Separate files by default**: `.ts`, `.html`, `.scss` files
+- [CS-C04] **Separate files by default**: `.ts`, `.html`, `.scss` files
 - **Use inline templates**: ONLY when HTML is 3 lines or less (e.g., just `<ng-content>`)
 - **Use inline styles**: ONLY when styles are 3 lines or less
 - **Skip SCSS files**: When there's no styling needed
@@ -80,7 +88,7 @@ export class UserProfileComponent {
 ```typescript
 // ✅ Inline template for simple content (3 lines or less)
 @Component({
-  standalone: true,
+  standalone: true,  // [CS-C01] Always standalone
   selector: 'app-wrapper',
   template: `<ng-content></ng-content>`
 })
@@ -115,11 +123,12 @@ export class UserProfileComponent {}
 @Component({
   standalone: true,
   selector: 'app-product-card',
-  template: `...`
+  template: `...`,
+  changeDetection: ChangeDetectionStrategy.OnPush  // [CS-C05] Always use OnPush
 })
 export class ProductCardComponent {
-  product = input.required<Product>();
-  featured = input<boolean>(false);
+  product = input.required<Product>();  // [CS-C02] Signal inputs only
+  featured = input<boolean>(false);     // [CS-C02] Signal inputs only
 }
 ```
 
@@ -130,22 +139,22 @@ export class ProductCardComponent {
 ### Modern Syntax Only
 ```html
 // ✅ ALWAYS use new control flow
-  @if (user()) {
+  @if (user()) {                        // [CS-T01] Use @if, @for, @switch only
     <h1>Welcome {{ user.name }}!</h1>
   }
 
-  @for (item of items; track item.id) {
+  @for (item of items; track item.id) { // [CS-T01] + [CS-T03] Always specify track
     <app-item-card [item]="item" />
   } @empty {
     <p>No items found</p>
   }
   
-// ❌ NEVER use old structural directives
+// ❌ [CS-T02] NEVER use old structural directives
 // *ngIf, *ngFor, *ngSwitch are forbidden
 ```
 
 ### Template Logic Rules
-- Keep templates simple and declarative
+- [CS-T04] Keep templates simple and declarative
 - Complex logic belongs in component class or services
 - Use computed properties for derived data
 
@@ -153,11 +162,13 @@ export class ProductCardComponent {
 
 ## 📥 State Management
 
+<!-- [CS-S01] One-way data flow: Component → Service → Store → Component -->
+
 ### Signal Stores (Use Sparingly)
 - **Only when needed**: For shared state across components/features
 - **Keep it simple**: Data mutation methods only
-- **No HTTP calls**: Services handle data fetching
-- **Use @ngrx/signals**: Use the signalStore from @ngrx/signals package
+- [CS-S05] **No HTTP calls**: Services handle data fetching
+- [CS-S04] **Use @ngrx/signals**: Use the signalStore from @ngrx/signals package
 
 ```typescript
 import { computed, Injectable } from '@angular/core';
@@ -180,11 +191,11 @@ export class UserStore extends signalStore(
   })
 ) {
   
-  // Computed signals for derived state
+  // [CS-S02] Computed signals for derived state - read state via store signals
   readonly isLoggedIn = computed(() => !!this.currentUser());
   readonly displayName = computed(() => this.currentUser()?.name ?? 'Guest');
   
-  // Simple mutation methods only
+  // [CS-S03] Simple mutation methods only
   setCurrentUser(user: User | null) {
     patchState(this, { currentUser: user });
   }
@@ -212,21 +223,21 @@ export class UserStore extends signalStore(
 ### Service Responsibilities
 ```typescript
 // Data Layer
-@Injectable({ providedIn: 'root' })
+@Injectable({ providedIn: 'root' })  // [CS-V01] Always use providedIn: 'root'
 export class UserDataService {
-  // Firebase/API interactions only
+  // [CS-V04] Firebase/API interactions only - services handle HTTP, stores handle state
 }
 
 // Business Logic Layer  
-@Injectable({ providedIn: 'root' })
+@Injectable({ providedIn: 'root' })  // [CS-V01] Always use providedIn: 'root'
 export class UserService {
-  // Business rules, validation, coordination
+  // [CS-V03] Business rules, validation, coordination - separate data/business/UI services
 }
 
 // UI Helper Layer
-@Injectable({ providedIn: 'root' })
+@Injectable({ providedIn: 'root' })  // [CS-V01] Always use providedIn: 'root'
 export class UserUIService {
-  // Formatting, display logic, UI state
+  // [CS-V03] Formatting, display logic, UI state - separate data/business/UI services
 }
 ```
 
@@ -239,16 +250,16 @@ export class UserUIService {
 ## 🔄 Async Patterns: Async/Await First
 
 ### Core Principle: Use Async/Await for One-Time Operations
-- **ALWAYS use async/await** for HTTP requests, Firebase operations, and one-time async operations
-- **ONLY use RxJS Observables** for actual event streams (auth state changes, real-time updates, user input)
-- **NEVER wrap Promises in Observables** - use Promises/async-await directly
-- **Update state directly** in try/catch blocks, not in RxJS operators (no `tap` for side effects)
+- [CS-A01] **ALWAYS use async/await** for HTTP requests, Firebase operations, and one-time async operations
+- [CS-A02] **ONLY use RxJS Observables** for actual event streams (auth state changes, real-time updates, user input)
+- [CS-A03] **NEVER wrap Promises in Observables** - use Promises/async-await directly
+- [CS-A04] **Update state directly** in try/catch blocks, not in RxJS operators (no `tap` for side effects)
 
 ### Data Service Pattern (Async/Await)
 ```typescript
 @Injectable({ providedIn: 'root' })
 export class BookDataService {
-  private db = inject(Firestore);
+  private db = inject(Firestore);  // [CS-V02] Use inject() function
   
   // ✅ GOOD - Returns Promise directly
   async getBook(id: string): Promise<Book> {
@@ -412,11 +423,11 @@ export class SearchComponent {
 ## 📁 File Structure
 
 ### Feature-First Organization
-- **Feature names** as top-level folders under `src/app/`
+- [CS-F01] **Feature names** as top-level folders under `src/app/` - feature folders contain ALL feature code
 - **Pages**: Routed components (components that have routes)
 - **Components**: Non-routed, reusable components within the feature
-- **Services/Models/Guards/Stores**: Keep within the feature folder, NOT in shared
-- **Shared folder**: ONLY for truly cross-cutting concerns used by 3+ unrelated features
+- [CS-F02] **Services/Models/Guards/Stores**: Keep within the feature folder, NOT in shared
+- [CS-F03] **Shared folder**: ONLY for truly cross-cutting concerns used by 3+ unrelated features
 
 ```
 src/app/
@@ -478,8 +489,8 @@ src/app/
   - Truly cross-cutting components (loading spinners, modals, etc.)
 - **Always separate files**: `.ts`, `.html`, `.scss` files (except for templates/styles 3 lines or less)
 - **6-7 files maximum** per folder
-- **Each component gets its own folder** with the three separate files
-- **Resolvers in resolvers/ subfolder** under the relevant page
+- [CS-F04] **Each component gets its own folder** with the three separate files
+- [CS-F05] **Resolvers in resolvers/ subfolder** under the relevant page
 - **Angular is modular at class level**: With standalone components, there's no need to share services/models
 
 ---
@@ -487,15 +498,15 @@ src/app/
 ## 🧪 Testing Standards
 
 ### Required Tests
-- ALL TEST MUST BE BEHAVIORALLY DRIVEN; TESTING FUNCTION NOT IMPLEMENTATION
-- Every component should have unit tests 
-- Every service should have unit tests  
+- [CS-X01] ALL TEST MUST BE BEHAVIORALLY DRIVEN; TESTING FUNCTION NOT IMPLEMENTATION
+- [CS-X02] Every component should have unit tests 
+- [CS-X03] Every service should have unit tests  
 - Every resolver should have unit tests
 
 
 ### Testing Tools
-- **Vitest** and **Jasmine** for unit testing
-- **@ngneat/spectator** for component testing
+- [CS-X04] **Vitest** and **Jasmine** for unit testing
+- [CS-X04] **@ngneat/spectator** for component testing
 - Focus on behavior, not implementation
 
 
@@ -521,14 +532,14 @@ describe('UserProfileComponent', () => {
 ## 🛠️ Code Quality
 
 ### TypeScript Configuration
-- **Strict Mode**: Always enabled
+- [CS-Q01] **Strict Mode**: Always enabled
 - **Type Safety**: Avoid `any` unless absolutely necessary
 - **Explicit Return Types**: On public methods
 
 ### Utility Functions - Prefer Lodash
-- **Always prefer Lodash** for array/object operations when it provides cleaner syntax
-- **Property shorthand**: Lodash's property shorthand is more readable than native methods
-- **Import specific functions**: Use tree-shakeable imports
+- [CS-Q02] **Always prefer Lodash** for array/object operations when it provides cleaner syntax
+- [CS-Q04] **Property shorthand**: Lodash's property shorthand is more readable than native methods
+- [CS-Q03] **Import specific functions**: Use tree-shakeable imports
 
 ```typescript
 import { filter, find, map, groupBy, sortBy, uniqBy } from 'lodash-es';
