@@ -15,10 +15,17 @@ This directory contains universal Angular and TypeScript coding standards that c
 **Content**: Router-first architecture, components, state management, async patterns, file organization, testing  
 **Status**: Living document - updated based on real-world usage  
 
+### angular-state-architecture.md
+**Purpose**: Comprehensive guide to state management architecture and data flow  
+**Content**: Detailed layer responsibilities, decision guidelines table, best practices, anti-patterns  
+**Unique Value**: Practical "where does X belong?" decision guide and concrete code examples  
+**Integration**: Referenced by law codes CS-S01 through CS-S05  
+
 ### angular-state-pattern.mermaid
 **Purpose**: Visual flowchart of the one-way state management pattern  
 **Shows**: Component → Service → Store → Component data flow  
 **Key Concept**: Shared state is immutable at component level, only updated via services  
+**Note**: Supplementary visualization to angular-state-architecture.md  
 
 ## 📖 Reference Documentation
 

@@ -24,11 +24,13 @@
 
 ## 📥 State Management
 
-- **CS-S01**: One-way flow: Component → Service → Store → Component → [§One-Way Data Flow]
-- **CS-S02**: Read state via store signals only → [§Signal Stores]
-- **CS-S03**: Update state via service methods only → [§Service Responsibilities]
+- **CS-S01**: One-way flow: Component → Service → Store → Component → [§State Architecture]
+- **CS-S02**: Read state via store signals only → [§Read Operations]
+- **CS-S03**: Update state via service methods only → [§Write Operations]
 - **CS-S04**: Use @ngrx/signals for shared state → [§Signal Stores]
 - **CS-S05**: No HTTP calls in stores → [§Signal Stores]
+- **📊 Decision Guide**: Where does X belong? → [State Architecture: Decision Guidelines]
+- **⚠️ Anti-patterns**: What NOT to do → [State Architecture: Anti-patterns]
 
 ## 🔧 Services
 

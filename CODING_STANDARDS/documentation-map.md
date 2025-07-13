@@ -8,7 +8,8 @@
 |----------------|----------|
 | Quick coding rules | [angular-cheat-sheet.md](./angular-cheat-sheet.md) |
 | Detailed standards with examples | [angular-coding-standards.md](./angular-coding-standards.md) |
-| Visual architecture diagram | [angular-state-pattern.mermaid](./angular-state-pattern.mermaid) |
+| State architecture guide | [angular-state-architecture.md](./angular-state-architecture.md) |
+| Visual state flow diagram | [angular-state-pattern.mermaid](./angular-state-pattern.mermaid) |
 | Project-specific implementation | [CLAUDE.md](../CLAUDE.md) |
 | WhyTV deviations from standards | [project-overrides.md](./project-overrides.md) |
 | Library documentation | [/docs](../docs/) directory |
@@ -22,7 +23,8 @@ whytv/
 ├── CODING_STANDARDS/                 # Universal standards (portable)
 │   ├── angular-cheat-sheet.md        # Quick reference with law codes
 │   ├── angular-coding-standards.md   # Comprehensive law book
-│   ├── angular-state-pattern.mermaid # Visual architecture
+│   ├── angular-state-architecture.md # Detailed state management guide
+│   ├── angular-state-pattern.mermaid # Visual state flow diagram
 │   ├── angular_llms.txt              # Angular's LLM reference
 │   ├── angular_llms-full.txt         # Angular's full LLM docs
 │   ├── documentation-map.md          # This file
@@ -41,7 +43,9 @@ whytv/
 ### "I need to know how to..."
 - **Write Angular code** → Start with `angular-cheat-sheet.md`
 - **Understand a specific rule** → Look up the code in `angular-coding-standards.md`
-- **Understand state flow** → View `angular-state-pattern.mermaid`
+- **Design state architecture** → Read `angular-state-architecture.md`
+- **Visualize state flow** → View `angular-state-pattern.mermaid`
+- **Decide where code belongs** → Check Decision Guidelines in `angular-state-architecture.md`
 - **Work with WhyTV specifically** → Check `CLAUDE.md`
 - **Use a library** → Check `/docs` directory
 
@@ -68,9 +72,15 @@ whytv/
 - The source of truth for all standards
 - 600+ lines of best practices
 
+**angular-state-architecture.md**
+- Comprehensive state management guide
+- Decision guidelines table
+- Best practices and anti-patterns
+- Code examples
+
 **angular-state-pattern.mermaid**
 - Visual representation of state flow
-- Shows one-way data flow pattern
+- Supplementary diagram to state architecture guide
 - Component → Service → Store → Component
 
 **project-overrides.md**
