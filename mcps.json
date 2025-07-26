@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "firebase": {
+      "type": "stdio",
+      "command": "firebase-tools",
+      "args": [
+        "experimental:mcp" /* Use --dir /path/to/project for explicit project path */
+      ],
+      "env": {}
+    },
+    "angular-cli": {
+      "command": "ng",
+      "args": ["mcp"]
+    }
+  }
+}
